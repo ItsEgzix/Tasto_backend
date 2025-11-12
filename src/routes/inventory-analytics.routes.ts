@@ -9,7 +9,7 @@ import {
   ingredientAnalytics,
   ingredients,
 } from "../db/schema";
-import { eq, desc, gte } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 const router = Router();
 router.use(authenticate);
