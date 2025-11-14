@@ -23,12 +23,12 @@ router.get("/", async (req, res, next) => {
       req.user.userId
     );
 
-    res.json({
+    return res.json({
       status: "success",
       data: preferences,
     });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -56,7 +56,7 @@ router.put(
         req.body
       );
 
-      res.json({
+      return res.json({
         status: "success",
         message: "Preferences updated successfully",
         data: preferences,
@@ -69,13 +69,9 @@ router.put(
           message: err.message,
         });
       }
-      next(error);
+      return next(error);
     }
   }
 );
 
 export default router;
-
-
-
-
