@@ -1,49 +1,66 @@
 import { db } from "../db";
 import { recipeCategories } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export class RecipeCategoryService {
-  static async getAllCategories() {
-    return db.select().from(recipeCategories);
+  static async getAllCategories(userId: string) {
+    return db
+      .select()
+      .from(recipeCategories)
+      .where(eq(recipeCategories.userId, userId))
+      .orderBy(recipeCategories.name);
   }
 
-  static async getCategoryById(id: string) {
+  static async getCategoryById(id: string, userId: string) {
     const [category] = await db
       .select()
       .from(recipeCategories)
-      .where(eq(recipeCategories.id, id))
+      .where(
+        and(eq(recipeCategories.id, id), eq(recipeCategories.userId, userId))
+      )
       .limit(1);
     return category;
   }
 
-  static async createCategory(data: {
-    name: string;
-    description?: string;
-    color?: string;
-  }) {
+  static async createCategory(
+    data: {
+      name: string;
+      description?: string;
+      color?: string;
+    },
+    userId: string
+  ) {
     const [existing] = await db
       .select()
       .from(recipeCategories)
-      .where(eq(recipeCategories.name, data.name))
+      .where(
+        and(
+          eq(recipeCategories.name, data.name),
+          eq(recipeCategories.userId, userId)
+        )
+      )
       .limit(1);
     if (existing) {
       throw new Error("Recipe category with this name already exists");
     }
     const [newCategory] = await db
       .insert(recipeCategories)
-      .values(data)
+      .values({ ...data, userId })
       .returning();
     return newCategory;
   }
 
   static async updateCategory(
     id: string,
-    data: { name?: string; description?: string; color?: string }
+    data: { name?: string; description?: string; color?: string },
+    userId: string
   ) {
     const [existing] = await db
       .select()
       .from(recipeCategories)
-      .where(eq(recipeCategories.id, id))
+      .where(
+        and(eq(recipeCategories.id, id), eq(recipeCategories.userId, userId))
+      )
       .limit(1);
     if (!existing) {
       throw new Error("Recipe category not found");
@@ -52,7 +69,12 @@ export class RecipeCategoryService {
       const [nameConflict] = await db
         .select()
         .from(recipeCategories)
-        .where(eq(recipeCategories.name, data.name))
+        .where(
+          and(
+            eq(recipeCategories.name, data.name),
+            eq(recipeCategories.userId, userId)
+          )
+        )
         .limit(1);
       if (nameConflict) {
         throw new Error("Recipe category with this name already exists");
@@ -61,21 +83,29 @@ export class RecipeCategoryService {
     const [updatedCategory] = await db
       .update(recipeCategories)
       .set({ ...data, updatedAt: new Date() })
-      .where(eq(recipeCategories.id, id))
+      .where(
+        and(eq(recipeCategories.id, id), eq(recipeCategories.userId, userId))
+      )
       .returning();
     return updatedCategory;
   }
 
-  static async deleteCategory(id: string) {
+  static async deleteCategory(id: string, userId: string) {
     const [existing] = await db
       .select()
       .from(recipeCategories)
-      .where(eq(recipeCategories.id, id))
+      .where(
+        and(eq(recipeCategories.id, id), eq(recipeCategories.userId, userId))
+      )
       .limit(1);
     if (!existing) {
       throw new Error("Recipe category not found");
     }
     // TODO: Add check for recipes linked to this category before deletion
-    await db.delete(recipeCategories).where(eq(recipeCategories.id, id));
+    await db
+      .delete(recipeCategories)
+      .where(
+        and(eq(recipeCategories.id, id), eq(recipeCategories.userId, userId))
+      );
   }
 }

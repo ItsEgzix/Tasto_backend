@@ -52,16 +52,21 @@ router.post(
         supplierId,
       } = req.body;
 
-      const stock = await InventoryService.recordPurchase({
-        ingredientId,
-        storageLocationId,
-        quantity,
-        batchNumber,
-        expirationDate,
-        purchaseDate,
-        purchasePrice,
-        supplierId,
-      });
+      const userId = req.user!.userId;
+
+      const stock = await InventoryService.recordPurchase(
+        {
+          ingredientId,
+          storageLocationId,
+          quantity,
+          batchNumber,
+          expirationDate,
+          purchaseDate,
+          purchasePrice,
+          supplierId,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -103,14 +108,18 @@ router.post(
   async (req, res, next) => {
     try {
       const { ingredientStockId, quantityUsed, date, reason, notes } = req.body;
+      const userId = req.user!.userId;
 
-      const usage = await InventoryService.recordUsage({
-        ingredientStockId,
-        quantityUsed,
-        date,
-        reason,
-        notes,
-      });
+      const usage = await InventoryService.recordUsage(
+        {
+          ingredientStockId,
+          quantityUsed,
+          date,
+          reason,
+          notes,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -152,14 +161,18 @@ router.post(
   async (req, res, next) => {
     try {
       const { ingredientStockId, quantity, reason, date, notes } = req.body;
+      const userId = req.user!.userId;
 
-      const spoilage = await InventoryService.recordSpoilage({
-        ingredientStockId,
-        quantity,
-        reason,
-        date,
-        notes,
-      });
+      const spoilage = await InventoryService.recordSpoilage(
+        {
+          ingredientStockId,
+          quantity,
+          reason,
+          date,
+          notes,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -183,9 +196,10 @@ router.post(
 );
 
 // GET /api/inventory/stock - Get all stock levels
-router.get("/stock", async (_req, res, next) => {
+router.get("/stock", async (req, res, next) => {
   try {
-    const stock = await InventoryService.getAllStock();
+    const userId = req.user!.userId;
+    const stock = await InventoryService.getAllStock(userId);
     res.json({
       status: "success",
       data: stock,
@@ -215,7 +229,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { startDate, endDate, ingredientId } = req.query;
-      const history = await InventoryService.getUsageHistory({
+      const userId = req.user!.userId;
+      const history = await InventoryService.getUsageHistory(userId, {
         startDate: startDate as string | undefined,
         endDate: endDate as string | undefined,
         ingredientId: ingredientId as string | undefined,
@@ -246,7 +261,8 @@ router.get(
       const days = req.query.days
         ? parseInt(req.query.days as string)
         : undefined;
-      const items = await InventoryService.getExpiringItems(days);
+      const userId = req.user!.userId;
+      const items = await InventoryService.getExpiringItems(userId, days);
       res.json({
         status: "success",
         data: items,

@@ -10,9 +10,10 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/recipe-categories - List all recipe categories
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const categories = await RecipeCategoryService.getAllCategories();
+    const userId = req.user!.userId;
+    const categories = await RecipeCategoryService.getAllCategories(userId);
 
     res.json({
       status: "success",
@@ -30,7 +31,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const category = await RecipeCategoryService.getCategoryById(id);
+      const userId = req.user!.userId;
+      const category = await RecipeCategoryService.getCategoryById(id, userId);
 
       if (!category) {
         const error: AppError = new Error("Recipe category not found");
@@ -59,12 +61,16 @@ router.post(
   async (req, res, next) => {
     try {
       const { name, description, color } = req.body;
+      const userId = req.user!.userId;
 
-      const category = await RecipeCategoryService.createCategory({
-        name,
-        description,
-        color,
-      });
+      const category = await RecipeCategoryService.createCategory(
+        {
+          name,
+          description,
+          color,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -100,12 +106,17 @@ router.put(
     try {
       const { id } = req.params;
       const { name, description, color } = req.body;
+      const userId = req.user!.userId;
 
-      const category = await RecipeCategoryService.updateCategory(id, {
-        name,
-        description,
-        color,
-      });
+      const category = await RecipeCategoryService.updateCategory(
+        id,
+        {
+          name,
+          description,
+          color,
+        },
+        userId
+      );
 
       res.json({
         status: "success",
@@ -135,7 +146,8 @@ router.delete(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      await RecipeCategoryService.deleteCategory(id);
+      const userId = req.user!.userId;
+      await RecipeCategoryService.deleteCategory(id, userId);
 
       res.json({
         status: "success",

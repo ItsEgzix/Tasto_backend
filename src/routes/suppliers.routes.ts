@@ -10,9 +10,10 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/suppliers - List all suppliers
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const suppliers = await SupplierService.getAllSuppliers();
+    const userId = req.user!.userId;
+    const suppliers = await SupplierService.getAllSuppliers(userId);
 
     res.json({
       status: "success",
@@ -30,7 +31,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const supplier = await SupplierService.getSupplierById(id);
+      const userId = req.user!.userId;
+      const supplier = await SupplierService.getSupplierById(id, userId);
 
       if (!supplier) {
         const error: AppError = new Error("Supplier not found");
@@ -59,12 +61,16 @@ router.post(
   async (req, res, next) => {
     try {
       const { name, contactInfo, notes } = req.body;
+      const userId = req.user!.userId;
 
-      const supplier = await SupplierService.createSupplier({
-        name,
-        contactInfo,
-        notes,
-      });
+      const supplier = await SupplierService.createSupplier(
+        {
+          name,
+          contactInfo,
+          notes,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -94,12 +100,17 @@ router.put(
     try {
       const { id } = req.params;
       const { name, contactInfo, notes } = req.body;
+      const userId = req.user!.userId;
 
-      const supplier = await SupplierService.updateSupplier(id, {
-        name,
-        contactInfo,
-        notes,
-      });
+      const supplier = await SupplierService.updateSupplier(
+        id,
+        {
+          name,
+          contactInfo,
+          notes,
+        },
+        userId
+      );
 
       res.json({
         status: "success",
@@ -125,7 +136,8 @@ router.delete(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      await SupplierService.deleteSupplier(id);
+      const userId = req.user!.userId;
+      await SupplierService.deleteSupplier(id, userId);
 
       res.json({
         status: "success",

@@ -9,6 +9,8 @@ import {
   date,
   jsonb,
   integer,
+  unique,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -16,6 +18,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   password: text("password").notNull(),
+  currency: text("currency").default("USD").notNull(), // User's preferred currency
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -32,14 +35,23 @@ export const refreshTokens = pgTable("refresh_tokens", {
 });
 
 // Categories table
-export const categories = pgTable("categories", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(),
-  description: text("description"),
-  color: text("color"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const categories = pgTable(
+  "categories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    color: text("color"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userCategoryUnique: unique().on(table.userId, table.name),
+  })
+);
 
 // Units table
 export const unitTypeEnum = pgEnum("unit_type_enum", [
@@ -49,55 +61,94 @@ export const unitTypeEnum = pgEnum("unit_type_enum", [
   "other",
 ]);
 
-export const units = pgTable("units", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(),
-  type: unitTypeEnum("type").notNull(),
-  symbol: text("symbol"),
-  description: text("description"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const units = pgTable(
+  "units",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: unitTypeEnum("type").notNull(),
+    symbol: text("symbol"),
+    description: text("description"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userUnitUnique: unique().on(table.userId, table.name),
+  })
+);
 
 // Suppliers table
-export const suppliers = pgTable("suppliers", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull(),
-  contactInfo: text("contact_info"),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const suppliers = pgTable(
+  "suppliers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    contactInfo: text("contact_info"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userSupplierUnique: unique().on(table.userId, table.name),
+  })
+);
 
 // Storage locations table
-export const storageLocations = pgTable("storage_locations", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(),
-  description: text("description"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const storageLocations = pgTable(
+  "storage_locations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userStorageLocationUnique: unique().on(table.userId, table.name),
+  })
+);
 
 // Ingredients table
-export const ingredients = pgTable("ingredients", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(),
-  categoryId: uuid("category_id")
-    .notNull()
-    .references(() => categories.id, { onDelete: "restrict" }),
-  unitId: uuid("unit_id")
-    .notNull()
-    .references(() => units.id, { onDelete: "restrict" }),
-  restockThreshold: numeric("restock_threshold", { precision: 10, scale: 2 })
-    .default("0")
-    .notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const ingredients = pgTable(
+  "ingredients",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "restrict" }),
+    unitId: uuid("unit_id")
+      .notNull()
+      .references(() => units.id, { onDelete: "restrict" }),
+    restockThreshold: numeric("restock_threshold", { precision: 10, scale: 2 })
+      .default("0")
+      .notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userIngredientUnique: unique().on(table.userId, table.name),
+  })
+);
 
 // Ingredient stock table - tracks inventory with purchase details
 export const ingredientStock = pgTable("ingredient_stock", {
   id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   ingredientId: uuid("ingredient_id")
     .notNull()
     .references(() => ingredients.id, { onDelete: "cascade" }),
@@ -147,28 +198,46 @@ export const spoilageRecords = pgTable("spoilage_records", {
 });
 
 // Recipe categories table
-export const recipeCategories = pgTable("recipe_categories", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(),
-  description: text("description"),
-  color: text("color"), // For UI display (hex color)
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const recipeCategories = pgTable(
+  "recipe_categories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    color: text("color"), // For UI display (hex color)
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userRecipeCategoryUnique: unique().on(table.userId, table.name),
+  })
+);
 
 // Recipes table
-export const recipes = pgTable("recipes", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(),
-  categoryId: uuid("category_id")
-    .notNull()
-    .references(() => recipeCategories.id, { onDelete: "restrict" }),
-  description: text("description"), // Optional description
-  instructions: text("instructions").notNull(), // Step-by-step instructions
-  serves: numeric("serves", { precision: 10, scale: 2 }).notNull(), // Base serving size (e.g., 4 people)
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const recipes = pgTable(
+  "recipes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => recipeCategories.id, { onDelete: "restrict" }),
+    description: text("description"), // Optional description
+    instructions: text("instructions").notNull(), // Step-by-step instructions
+    serves: numeric("serves", { precision: 10, scale: 2 }).notNull(), // Base serving size (e.g., 4 people)
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userRecipeUnique: unique().on(table.userId, table.name),
+  })
+);
 
 // Recipe ingredients table - links recipes to ingredients with quantities
 export const recipeIngredients = pgTable("recipe_ingredients", {
@@ -185,59 +254,123 @@ export const recipeIngredients = pgTable("recipe_ingredients", {
 });
 
 // Daily inventory snapshots table - stores pre-computed analytics per day
-export const dailyInventorySnapshots = pgTable("daily_inventory_snapshots", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  snapshotDate: date("snapshot_date").notNull().unique(),
+export const dailyInventorySnapshots = pgTable(
+  "daily_inventory_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    snapshotDate: date("snapshot_date").notNull(),
 
-  // Overall statistics (current state as of this date)
-  totalValue: numeric("total_value", { precision: 12, scale: 2 })
-    .notNull()
-    .default("0"),
-  remainingValue: numeric("remaining_value", { precision: 12, scale: 2 })
-    .notNull()
-    .default("0"),
-  totalPurchases: integer("total_purchases").notNull().default(0),
-  totalIngredients: integer("total_ingredients").notNull().default(0),
-  lowStockCount: integer("low_stock_count").notNull().default(0),
+    // Overall statistics (current state as of this date)
+    totalValue: numeric("total_value", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    remainingValue: numeric("remaining_value", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    totalPurchases: integer("total_purchases").notNull().default(0),
+    totalIngredients: integer("total_ingredients").notNull().default(0),
+    lowStockCount: integer("low_stock_count").notNull().default(0),
 
-  // Detailed data (stored as JSONB for flexibility)
-  ingredientStats: jsonb("ingredient_stats").notNull().default("[]"), // Array of per-ingredient stats
-  supplierStats: jsonb("supplier_stats").notNull().default("[]"), // Array of per-supplier stats
-  categoryDistribution: jsonb("category_distribution").notNull().default("[]"), // Array of category stats
+    // Detailed data (stored as JSONB for flexibility)
+    ingredientStats: jsonb("ingredient_stats").notNull().default("[]"), // Array of per-ingredient stats
+    supplierStats: jsonb("supplier_stats").notNull().default("[]"), // Array of per-supplier stats
+    categoryDistribution: jsonb("category_distribution")
+      .notNull()
+      .default("[]"), // Array of category stats
 
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userSnapshotDateUnique: unique().on(table.userId, table.snapshotDate),
+  })
+);
 
 // Ingredient analytics table - stores pre-computed analytics per ingredient
-export const ingredientAnalytics = pgTable("ingredient_analytics", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  ingredientId: uuid("ingredient_id")
-    .notNull()
-    .references(() => ingredients.id, { onDelete: "cascade" })
-    .unique(),
+export const ingredientAnalytics = pgTable(
+  "ingredient_analytics",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => ingredients.id, { onDelete: "cascade" }),
 
-  // Current statistics
-  totalValue: numeric("total_value", { precision: 12, scale: 2 })
-    .notNull()
-    .default("0"),
-  remainingValue: numeric("remaining_value", { precision: 12, scale: 2 })
-    .notNull()
-    .default("0"),
-  averagePricePerUnit: numeric("average_price_per_unit", {
-    precision: 10,
-    scale: 2,
+    // Current statistics
+    totalValue: numeric("total_value", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    remainingValue: numeric("remaining_value", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    averagePricePerUnit: numeric("average_price_per_unit", {
+      precision: 10,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    totalPurchases: integer("total_purchases").notNull().default(0),
+
+    // Trend data (last 90 days)
+    priceTrend: jsonb("price_trend").notNull().default("[]"), // [{date, averagePrice}]
+    stockValueTrend: jsonb("stock_value_trend").notNull().default("[]"), // [{date, totalValue, remainingValue}]
+
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userIngredientAnalyticsUnique: unique().on(
+      table.userId,
+      table.ingredientId
+    ),
   })
-    .notNull()
-    .default("0"),
-  totalPurchases: integer("total_purchases").notNull().default(0),
+);
 
-  // Trend data (last 90 days)
-  priceTrend: jsonb("price_trend").notNull().default("[]"), // [{date, averagePrice}]
-  stockValueTrend: jsonb("stock_value_trend").notNull().default("[]"), // [{date, totalValue, remainingValue}]
+// Menu plans table - stores menu plans and templates
+export const menuPlans = pgTable(
+  "menu_plans",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    isTemplate: boolean("is_template").default(false).notNull(), // Reusable templates
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    userMenuPlanUnique: unique().on(table.userId, table.name),
+  })
+);
 
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+// Menu items table - links recipes to menu plans
+export const menuItems = pgTable(
+  "menu_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    menuPlanId: uuid("menu_plan_id")
+      .notNull()
+      .references(() => menuPlans.id, { onDelete: "cascade" }),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "restrict" }),
+    servings: numeric("servings", { precision: 10, scale: 2 }).notNull(), // How many servings of this recipe
+    notes: text("notes"), // Optional notes for this item
+    order: integer("order"), // Display order
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    // Index for fast lookups by menu plan (used in getAllMenuPlans)
+    menuPlanIdIdx: index("menu_items_menu_plan_id_idx").on(table.menuPlanId),
+  })
+);
 
 // Type inference helpers
 export type Category = typeof categories.$inferSelect;
@@ -268,3 +401,7 @@ export type NewDailyInventorySnapshot =
   typeof dailyInventorySnapshots.$inferInsert;
 export type IngredientAnalytic = typeof ingredientAnalytics.$inferSelect;
 export type NewIngredientAnalytic = typeof ingredientAnalytics.$inferInsert;
+export type MenuPlan = typeof menuPlans.$inferSelect;
+export type NewMenuPlan = typeof menuPlans.$inferInsert;
+export type MenuItem = typeof menuItems.$inferSelect;
+export type NewMenuItem = typeof menuItems.$inferInsert;

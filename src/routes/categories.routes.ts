@@ -10,15 +10,23 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/categories - List all categories
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const categories = await CategoryService.getAllCategories();
+    if (!req.user || !req.user.userId) {
+      const error: AppError = new Error("User not authenticated");
+      error.statusCode = 401;
+      return next(error);
+    }
+
+    const userId = req.user.userId;
+    const categories = await CategoryService.getAllCategories(userId);
 
     res.json({
       status: "success",
       data: categories,
     });
   } catch (error) {
+    console.error("Error in GET /api/categories:", error);
     next(error);
   }
 });
@@ -30,7 +38,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const category = await CategoryService.getCategoryById(id);
+      const userId = req.user!.userId;
+      const category = await CategoryService.getCategoryById(id, userId);
 
       if (!category) {
         const error: AppError = new Error("Category not found");
@@ -59,12 +68,16 @@ router.post(
   async (req, res, next) => {
     try {
       const { name, description, color } = req.body;
+      const userId = req.user!.userId;
 
-      const category = await CategoryService.createCategory({
-        name,
-        description,
-        color,
-      });
+      const category = await CategoryService.createCategory(
+        {
+          name,
+          description,
+          color,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -100,12 +113,17 @@ router.put(
     try {
       const { id } = req.params;
       const { name, description, color } = req.body;
+      const userId = req.user!.userId;
 
-      const category = await CategoryService.updateCategory(id, {
-        name,
-        description,
-        color,
-      });
+      const category = await CategoryService.updateCategory(
+        id,
+        {
+          name,
+          description,
+          color,
+        },
+        userId
+      );
 
       res.json({
         status: "success",
@@ -134,7 +152,8 @@ router.delete(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      await CategoryService.deleteCategory(id);
+      const userId = req.user!.userId;
+      await CategoryService.deleteCategory(id, userId);
 
       res.json({
         status: "success",

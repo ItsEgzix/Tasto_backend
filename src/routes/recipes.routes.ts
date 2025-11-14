@@ -12,9 +12,10 @@ router.use(authenticate);
 
 // GET /api/recipes - List all recipes
 // OPTIMIZED: Uses batch queries and caching
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const recipes = await RecipeService.getAllRecipes();
+    const userId = req.user!.userId;
+    const recipes = await RecipeService.getAllRecipes(userId);
 
     // Add cache header for 5 minutes
     res.setHeader("Cache-Control", "private, max-age=300");
@@ -35,7 +36,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const recipe = await RecipeService.getRecipeById(id);
+      const userId = req.user!.userId;
+      const recipe = await RecipeService.getRecipeById(id, userId);
 
       if (!recipe) {
         const error: AppError = new Error("Recipe not found");
@@ -74,7 +76,12 @@ router.get(
         ? parseFloat(servings as string)
         : undefined;
 
-      const cost = await RecipeService.calculateRecipeCost(id, desiredServings);
+      const userId = req.user!.userId;
+      const cost = await RecipeService.calculateRecipeCost(
+        id,
+        userId,
+        desiredServings
+      );
 
       res.json({
         status: "success",
@@ -147,17 +154,21 @@ router.post(
         ingredients,
       } = req.body;
 
-      const recipe = await RecipeService.createRecipe({
-        name,
-        categoryId,
-        description,
-        instructions,
-        serves: parseFloat(serves),
-        ingredients: ingredients.map((ing: any) => ({
-          ingredientId: ing.ingredientId,
-          quantity: parseFloat(ing.quantity),
-        })),
-      });
+      const userId = req.user!.userId;
+      const recipe = await RecipeService.createRecipe(
+        {
+          name,
+          categoryId,
+          description,
+          instructions,
+          serves: parseFloat(serves),
+          ingredients: ingredients.map((ing: any) => ({
+            ingredientId: ing.ingredientId,
+            quantity: parseFloat(ing.quantity),
+          })),
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -260,7 +271,8 @@ router.put(
         }));
       }
 
-      const recipe = await RecipeService.updateRecipe(id, updateData);
+      const userId = req.user!.userId;
+      const recipe = await RecipeService.updateRecipe(id, updateData, userId);
 
       res.json({
         status: "success",
@@ -284,6 +296,81 @@ router.put(
   }
 );
 
+// POST /api/recipes/:id/complete - Complete a recipe (deduct ingredients)
+router.post(
+  "/:id/complete",
+  validate([
+    param("id").isUUID().withMessage("Invalid recipe ID"),
+    body("date").optional().isISO8601().withMessage("Valid date is required"),
+    body("allowPartialStock").optional().isBoolean(),
+    body("actualQuantities").optional().isArray(),
+    body("actualQuantities.*.ingredientId")
+      .optional()
+      .isUUID()
+      .withMessage("Valid ingredient ID is required"),
+    body("actualQuantities.*.quantity")
+      .optional()
+      .isNumeric()
+      .toFloat()
+      .isFloat({ gt: 0 })
+      .withMessage("Quantity must be a positive number"),
+  ]),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { date, allowPartialStock, actualQuantities } = req.body;
+      const userId = req.user!.userId;
+
+      const result = await RecipeService.completeRecipe(id, userId, {
+        date,
+        allowPartialStock,
+        actualQuantities,
+      });
+
+      // If there are shortages and partial stock is not allowed, return 400 with shortage details
+      if (!result.success && result.shortages && result.shortages.length > 0) {
+        return res.status(400).json({
+          status: "error",
+          message: "Insufficient stock available",
+          data: {
+            shortages: result.shortages,
+          },
+        });
+      }
+
+      // Success response
+      res.json({
+        status: "success",
+        message: result.shortages
+          ? "Recipe completed with partial stock"
+          : "Recipe completed successfully",
+        data: {
+          shortages: result.shortages,
+        },
+      });
+    } catch (error) {
+      const err = error as Error;
+      
+      // Handle specific errors
+      if (err.message === "Recipe not found") {
+        const appError: AppError = new Error(err.message);
+        appError.statusCode = 404;
+        return next(appError);
+      }
+
+      // Log unexpected errors for debugging
+      console.error("Error completing recipe:", error);
+      
+      // For any other error, return 500 but with a user-friendly message
+      const appError: AppError = new Error(
+        "An error occurred while completing the recipe. Please try again."
+      );
+      appError.statusCode = 500;
+      next(appError);
+    }
+  }
+);
+
 // DELETE /api/recipes/:id - Delete recipe
 router.delete(
   "/:id",
@@ -291,7 +378,8 @@ router.delete(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      await RecipeService.deleteRecipe(id);
+      const userId = req.user!.userId;
+      await RecipeService.deleteRecipe(id, userId);
 
       res.json({
         status: "success",

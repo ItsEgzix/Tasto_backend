@@ -9,7 +9,7 @@ import {
   storageLocations,
   suppliers,
 } from "../db/schema";
-import { eq, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray, and } from "drizzle-orm";
 
 export interface IngredientWithDetails {
   id: string;
@@ -36,14 +36,20 @@ export interface IngredientWithDetails {
 export class IngredientService {
   // Calculate current stock for an ingredient
   private static async calculateCurrentStock(
-    ingredientId: string
+    ingredientId: string,
+    userId: string
   ): Promise<string | null> {
     try {
       // Check if any stock records exist for this ingredient first
       const stockExists = await db
         .select({ count: sql<number>`count(*)` })
         .from(ingredientStock)
-        .where(eq(ingredientStock.ingredientId, ingredientId));
+        .where(
+          and(
+            eq(ingredientStock.ingredientId, ingredientId),
+            eq(ingredientStock.userId, userId)
+          )
+        );
 
       // If no stock records exist, return 0
       if (!stockExists[0] || Number(stockExists[0].count) === 0) {
@@ -56,7 +62,12 @@ export class IngredientService {
           total: sql<string>`COALESCE(SUM(${ingredientStock.quantity}), 0)`,
         })
         .from(ingredientStock)
-        .where(eq(ingredientStock.ingredientId, ingredientId));
+        .where(
+          and(
+            eq(ingredientStock.ingredientId, ingredientId),
+            eq(ingredientStock.userId, userId)
+          )
+        );
 
       const totalPurchased = purchasedResult[0]?.total ?? "0";
 
@@ -70,7 +81,12 @@ export class IngredientService {
           ingredientStock,
           eq(usageHistory.ingredientStockId, ingredientStock.id)
         )
-        .where(eq(ingredientStock.ingredientId, ingredientId));
+        .where(
+          and(
+            eq(ingredientStock.ingredientId, ingredientId),
+            eq(ingredientStock.userId, userId)
+          )
+        );
 
       const totalUsed = usedResult[0]?.total ?? "0";
 
@@ -84,7 +100,12 @@ export class IngredientService {
           ingredientStock,
           eq(spoilageRecords.ingredientStockId, ingredientStock.id)
         )
-        .where(eq(ingredientStock.ingredientId, ingredientId));
+        .where(
+          and(
+            eq(ingredientStock.ingredientId, ingredientId),
+            eq(ingredientStock.userId, userId)
+          )
+        );
 
       const totalSpoiled = spoiledResult[0]?.total ?? "0";
 
@@ -102,7 +123,9 @@ export class IngredientService {
     }
   }
 
-  static async getAllIngredients(): Promise<IngredientWithDetails[]> {
+  static async getAllIngredients(
+    userId: string
+  ): Promise<IngredientWithDetails[]> {
     const result = await db
       .select({
         id: ingredients.id,
@@ -128,7 +151,8 @@ export class IngredientService {
       })
       .from(ingredients)
       .leftJoin(categories, eq(ingredients.categoryId, categories.id))
-      .leftJoin(units, eq(ingredients.unitId, units.id));
+      .leftJoin(units, eq(ingredients.unitId, units.id))
+      .where(eq(ingredients.userId, userId));
 
     if (result.length === 0) return [];
 
@@ -142,7 +166,12 @@ export class IngredientService {
         quantity: ingredientStock.quantity,
       })
       .from(ingredientStock)
-      .where(inArray(ingredientStock.ingredientId, ingredientIds));
+      .where(
+        and(
+          inArray(ingredientStock.ingredientId, ingredientIds),
+          eq(ingredientStock.userId, userId)
+        )
+      );
 
     // Get all usage grouped by ingredient
     const allUsage = await db
@@ -155,7 +184,12 @@ export class IngredientService {
         ingredientStock,
         eq(usageHistory.ingredientStockId, ingredientStock.id)
       )
-      .where(inArray(ingredientStock.ingredientId, ingredientIds))
+      .where(
+        and(
+          inArray(ingredientStock.ingredientId, ingredientIds),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .groupBy(ingredientStock.ingredientId);
 
     // Get all spoilage grouped by ingredient
@@ -169,7 +203,12 @@ export class IngredientService {
         ingredientStock,
         eq(spoilageRecords.ingredientStockId, ingredientStock.id)
       )
-      .where(inArray(ingredientStock.ingredientId, ingredientIds))
+      .where(
+        and(
+          inArray(ingredientStock.ingredientId, ingredientIds),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .groupBy(ingredientStock.ingredientId);
 
     // Create maps for quick lookup
@@ -209,7 +248,8 @@ export class IngredientService {
   }
 
   static async getIngredientById(
-    id: string
+    id: string,
+    userId: string
   ): Promise<IngredientWithDetails | null> {
     const [result] = await db
       .select({
@@ -237,14 +277,14 @@ export class IngredientService {
       .from(ingredients)
       .leftJoin(categories, eq(ingredients.categoryId, categories.id))
       .leftJoin(units, eq(ingredients.unitId, units.id))
-      .where(eq(ingredients.id, id))
+      .where(and(eq(ingredients.id, id), eq(ingredients.userId, userId)))
       .limit(1);
 
     if (!result) {
       return null;
     }
 
-    const currentStock = await this.calculateCurrentStock(result.id);
+    const currentStock = await this.calculateCurrentStock(result.id, userId);
 
     return {
       id: result.id,
@@ -258,16 +298,21 @@ export class IngredientService {
     };
   }
 
-  static async createIngredient(data: {
-    name: string;
-    categoryId: string;
-    unitId: string;
-    restockThreshold?: number;
-  }): Promise<IngredientWithDetails> {
+  static async createIngredient(
+    data: {
+      name: string;
+      categoryId: string;
+      unitId: string;
+      restockThreshold?: number;
+    },
+    userId: string
+  ): Promise<IngredientWithDetails> {
     const [existing] = await db
       .select()
       .from(ingredients)
-      .where(eq(ingredients.name, data.name))
+      .where(
+        and(eq(ingredients.name, data.name), eq(ingredients.userId, userId))
+      )
       .limit(1);
 
     if (existing) {
@@ -277,7 +322,9 @@ export class IngredientService {
     const [category] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, data.categoryId))
+      .where(
+        and(eq(categories.id, data.categoryId), eq(categories.userId, userId))
+      )
       .limit(1);
 
     if (!category) {
@@ -287,7 +334,7 @@ export class IngredientService {
     const [unit] = await db
       .select()
       .from(units)
-      .where(eq(units.id, data.unitId))
+      .where(and(eq(units.id, data.unitId), eq(units.userId, userId)))
       .limit(1);
 
     if (!unit) {
@@ -301,10 +348,11 @@ export class IngredientService {
         categoryId: data.categoryId,
         unitId: data.unitId,
         restockThreshold: data.restockThreshold?.toString() || "0",
+        userId,
       })
       .returning();
 
-    const ingredient = await this.getIngredientById(newIngredient.id);
+    const ingredient = await this.getIngredientById(newIngredient.id, userId);
     if (!ingredient) {
       throw new Error("Failed to create ingredient");
     }
@@ -319,12 +367,13 @@ export class IngredientService {
       categoryId?: string;
       unitId?: string;
       restockThreshold?: number;
-    }
+    },
+    userId: string
   ): Promise<IngredientWithDetails> {
     const [existing] = await db
       .select()
       .from(ingredients)
-      .where(eq(ingredients.id, id))
+      .where(and(eq(ingredients.id, id), eq(ingredients.userId, userId)))
       .limit(1);
 
     if (!existing) {
@@ -335,7 +384,9 @@ export class IngredientService {
       const [nameConflict] = await db
         .select()
         .from(ingredients)
-        .where(eq(ingredients.name, data.name))
+        .where(
+          and(eq(ingredients.name, data.name), eq(ingredients.userId, userId))
+        )
         .limit(1);
 
       if (nameConflict) {
@@ -347,7 +398,9 @@ export class IngredientService {
       const [category] = await db
         .select()
         .from(categories)
-        .where(eq(categories.id, data.categoryId))
+        .where(
+          and(eq(categories.id, data.categoryId), eq(categories.userId, userId))
+        )
         .limit(1);
 
       if (!category) {
@@ -359,7 +412,7 @@ export class IngredientService {
       const [unit] = await db
         .select()
         .from(units)
-        .where(eq(units.id, data.unitId))
+        .where(and(eq(units.id, data.unitId), eq(units.userId, userId)))
         .limit(1);
 
       if (!unit) {
@@ -384,9 +437,12 @@ export class IngredientService {
       updateData.restockThreshold = data.restockThreshold.toString();
     }
 
-    await db.update(ingredients).set(updateData).where(eq(ingredients.id, id));
+    await db
+      .update(ingredients)
+      .set(updateData)
+      .where(and(eq(ingredients.id, id), eq(ingredients.userId, userId)));
 
-    const ingredient = await this.getIngredientById(id);
+    const ingredient = await this.getIngredientById(id, userId);
     if (!ingredient) {
       throw new Error("Failed to update ingredient");
     }
@@ -394,22 +450,24 @@ export class IngredientService {
     return ingredient;
   }
 
-  static async deleteIngredient(id: string): Promise<void> {
+  static async deleteIngredient(id: string, userId: string): Promise<void> {
     const [existing] = await db
       .select()
       .from(ingredients)
-      .where(eq(ingredients.id, id))
+      .where(and(eq(ingredients.id, id), eq(ingredients.userId, userId)))
       .limit(1);
 
     if (!existing) {
       throw new Error("Ingredient not found");
     }
 
-    await db.delete(ingredients).where(eq(ingredients.id, id));
+    await db
+      .delete(ingredients)
+      .where(and(eq(ingredients.id, id), eq(ingredients.userId, userId)));
   }
 
   // Get stock levels across locations
-  static async getIngredientStock(id: string): Promise<any[]> {
+  static async getIngredientStock(id: string, userId: string): Promise<any[]> {
     // First get the ingredient info
     const [ingredient] = await db
       .select({
@@ -422,7 +480,7 @@ export class IngredientService {
       })
       .from(ingredients)
       .leftJoin(units, eq(ingredients.unitId, units.id))
-      .where(eq(ingredients.id, id))
+      .where(and(eq(ingredients.id, id), eq(ingredients.userId, userId)))
       .limit(1);
 
     if (!ingredient) {
@@ -454,7 +512,12 @@ export class IngredientService {
         eq(ingredientStock.storageLocationId, storageLocations.id)
       )
       .leftJoin(suppliers, eq(ingredientStock.supplierId, suppliers.id))
-      .where(eq(ingredientStock.ingredientId, id));
+      .where(
+        and(
+          eq(ingredientStock.ingredientId, id),
+          eq(ingredientStock.userId, userId)
+        )
+      );
 
     // Calculate remaining quantity for each stock record
     const stockWithRemaining = await Promise.all(

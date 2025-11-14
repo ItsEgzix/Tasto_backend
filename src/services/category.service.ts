@@ -1,35 +1,52 @@
 import { db } from "../db";
 import { categories } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export class CategoryService {
   // List all categories
-  static async getAllCategories() {
-    return await db.select().from(categories).orderBy(categories.name);
+  static async getAllCategories(userId: string) {
+    try {
+      return await db
+        .select()
+        .from(categories)
+        .where(eq(categories.userId, userId))
+        .orderBy(categories.name);
+    } catch (error: any) {
+      console.error("Database error in getAllCategories:", {
+        error: error.message,
+        code: error.code,
+        detail: error.detail,
+        userId,
+      });
+      throw error;
+    }
   }
 
   // Get category by ID
-  static async getCategoryById(id: string) {
+  static async getCategoryById(id: string, userId: string) {
     const [category] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, id))
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)))
       .limit(1);
 
     return category || null;
   }
 
   // Create new category
-  static async createCategory(data: {
-    name: string;
-    description?: string;
-    color?: string;
-  }) {
+  static async createCategory(
+    data: {
+      name: string;
+      description?: string;
+      color?: string;
+    },
+    userId: string
+  ) {
     // Check if category name already exists
     const [existing] = await db
       .select()
       .from(categories)
-      .where(eq(categories.name, data.name))
+      .where(and(eq(categories.name, data.name), eq(categories.userId, userId)))
       .limit(1);
 
     if (existing) {
@@ -42,6 +59,7 @@ export class CategoryService {
         name: data.name,
         description: data.description || null,
         color: data.color || null,
+        userId,
       })
       .returning();
 
@@ -55,13 +73,14 @@ export class CategoryService {
       name?: string;
       description?: string;
       color?: string;
-    }
+    },
+    userId: string
   ) {
     // Check if category exists
     const [existing] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, id))
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)))
       .limit(1);
 
     if (!existing) {
@@ -73,7 +92,9 @@ export class CategoryService {
       const [nameConflict] = await db
         .select()
         .from(categories)
-        .where(eq(categories.name, data.name))
+        .where(
+          and(eq(categories.name, data.name), eq(categories.userId, userId))
+        )
         .limit(1);
 
       if (nameConflict) {
@@ -95,24 +116,27 @@ export class CategoryService {
       updateData.description = data.description || null;
     if (data.color !== undefined) updateData.color = data.color || null;
 
-    await db.update(categories).set(updateData).where(eq(categories.id, id));
+    await db
+      .update(categories)
+      .set(updateData)
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)));
 
     const [updated] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, id))
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)))
       .limit(1);
 
     return updated!;
   }
 
   // Delete category
-  static async deleteCategory(id: string) {
+  static async deleteCategory(id: string, userId: string) {
     // Check if category exists
     const [existing] = await db
       .select()
       .from(categories)
-      .where(eq(categories.id, id))
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)))
       .limit(1);
 
     if (!existing) {
@@ -123,6 +147,8 @@ export class CategoryService {
     // If it is, prevent deletion or handle cascade
     // For now, allow deletion
 
-    await db.delete(categories).where(eq(categories.id, id));
+    await db
+      .delete(categories)
+      .where(and(eq(categories.id, id), eq(categories.userId, userId)));
   }
 }

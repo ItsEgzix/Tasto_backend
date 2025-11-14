@@ -21,14 +21,16 @@ router.get(
   async (req, res, next) => {
     try {
       const { type } = req.query;
+      const userId = req.user!.userId;
 
       let units;
       if (type) {
         units = await UnitService.getUnitsByType(
-          type as "weight" | "volume" | "count" | "other"
+          type as "weight" | "volume" | "count" | "other",
+          userId
         );
       } else {
-        units = await UnitService.getAllUnits();
+        units = await UnitService.getAllUnits(userId);
       }
 
       res.json({
@@ -48,7 +50,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const unit = await UnitService.getUnitById(id);
+      const userId = req.user!.userId;
+      const unit = await UnitService.getUnitById(id, userId);
 
       if (!unit) {
         const error: AppError = new Error("Unit not found");
@@ -80,13 +83,17 @@ router.post(
   async (req, res, next) => {
     try {
       const { name, type, symbol, description } = req.body;
+      const userId = req.user!.userId;
 
-      const unit = await UnitService.createUnit({
-        name,
-        type: type as "weight" | "volume" | "count" | "other",
-        symbol,
-        description,
-      });
+      const unit = await UnitService.createUnit(
+        {
+          name,
+          type: type as "weight" | "volume" | "count" | "other",
+          symbol,
+          description,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -126,13 +133,18 @@ router.put(
     try {
       const { id } = req.params;
       const { name, type, symbol, description } = req.body;
+      const userId = req.user!.userId;
 
-      const unit = await UnitService.updateUnit(id, {
-        name,
-        type: type as "weight" | "volume" | "count" | "other" | undefined,
-        symbol,
-        description,
-      });
+      const unit = await UnitService.updateUnit(
+        id,
+        {
+          name,
+          type: type as "weight" | "volume" | "count" | "other" | undefined,
+          symbol,
+          description,
+        },
+        userId
+      );
 
       res.json({
         status: "success",
@@ -161,7 +173,8 @@ router.delete(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      await UnitService.deleteUnit(id);
+      const userId = req.user!.userId;
+      await UnitService.deleteUnit(id, userId);
 
       res.json({
         status: "success",

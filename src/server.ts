@@ -12,6 +12,8 @@ import suppliersRoutes from "./routes/suppliers.routes";
 import storageLocationsRoutes from "./routes/storage-locations.routes";
 import inventoryRoutes from "./routes/inventory.routes";
 import inventoryAnalyticsRoutes from "./routes/inventory-analytics.routes";
+import menuRoutes from "./routes/menu.routes";
+import userPreferencesRoutes from "./routes/user-preferences.routes";
 
 // Load environment variables
 dotenv.config();
@@ -46,6 +48,8 @@ app.use("/api/suppliers", suppliersRoutes);
 app.use("/api/storage-locations", storageLocationsRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/inventory/analytics", inventoryAnalyticsRoutes);
+app.use("/api/menu", menuRoutes);
+app.use("/api/user/preferences", userPreferencesRoutes);
 // etc.
 
 // Error handling middleware (must be last)

@@ -10,9 +10,12 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/storage-locations - List all storage locations
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const locations = await StorageLocationService.getAllStorageLocations();
+    const userId = req.user!.userId;
+    const locations = await StorageLocationService.getAllStorageLocations(
+      userId
+    );
 
     res.json({
       status: "success",
@@ -30,7 +33,11 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const location = await StorageLocationService.getStorageLocationById(id);
+      const userId = req.user!.userId;
+      const location = await StorageLocationService.getStorageLocationById(
+        id,
+        userId
+      );
 
       if (!location) {
         const error: AppError = new Error("Storage location not found");
@@ -61,11 +68,15 @@ router.post(
   async (req, res, next) => {
     try {
       const { name, description } = req.body;
+      const userId = req.user!.userId;
 
-      const location = await StorageLocationService.createStorageLocation({
-        name,
-        description,
-      });
+      const location = await StorageLocationService.createStorageLocation(
+        {
+          name,
+          description,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -100,11 +111,16 @@ router.put(
     try {
       const { id } = req.params;
       const { name, description } = req.body;
+      const userId = req.user!.userId;
 
-      const location = await StorageLocationService.updateStorageLocation(id, {
-        name,
-        description,
-      });
+      const location = await StorageLocationService.updateStorageLocation(
+        id,
+        {
+          name,
+          description,
+        },
+        userId
+      );
 
       res.json({
         status: "success",
@@ -134,7 +150,8 @@ router.delete(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      await StorageLocationService.deleteStorageLocation(id);
+      const userId = req.user!.userId;
+      await StorageLocationService.deleteStorageLocation(id, userId);
 
       res.json({
         status: "success",

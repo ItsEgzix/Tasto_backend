@@ -53,12 +53,17 @@ export interface IngredientStockDetail {
 
 export class InventoryService {
   // Calculate remaining quantity for a stock entry
-  static async calculateRemainingQuantity(stockId: string): Promise<string> {
+  static async calculateRemainingQuantity(
+    stockId: string,
+    userId: string
+  ): Promise<string> {
     // Get original quantity
     const [stock] = await db
       .select({ quantity: ingredientStock.quantity })
       .from(ingredientStock)
-      .where(eq(ingredientStock.id, stockId))
+      .where(
+        and(eq(ingredientStock.id, stockId), eq(ingredientStock.userId, userId))
+      )
       .limit(1);
 
     if (!stock) return "0";
@@ -71,7 +76,16 @@ export class InventoryService {
         total: sql<string>`COALESCE(SUM(${usageHistory.quantityUsed}), 0)`,
       })
       .from(usageHistory)
-      .where(eq(usageHistory.ingredientStockId, stockId));
+      .innerJoin(
+        ingredientStock,
+        eq(usageHistory.ingredientStockId, ingredientStock.id)
+      )
+      .where(
+        and(
+          eq(usageHistory.ingredientStockId, stockId),
+          eq(ingredientStock.userId, userId)
+        )
+      );
 
     const totalUsed = parseFloat(usedResult[0]?.total || "0");
 
@@ -81,7 +95,16 @@ export class InventoryService {
         total: sql<string>`COALESCE(SUM(${spoilageRecords.quantity}), 0)`,
       })
       .from(spoilageRecords)
-      .where(eq(spoilageRecords.ingredientStockId, stockId));
+      .innerJoin(
+        ingredientStock,
+        eq(spoilageRecords.ingredientStockId, ingredientStock.id)
+      )
+      .where(
+        and(
+          eq(spoilageRecords.ingredientStockId, stockId),
+          eq(ingredientStock.userId, userId)
+        )
+      );
 
     const totalSpoiled = parseFloat(spoiledResult[0]?.total || "0");
 
@@ -90,21 +113,29 @@ export class InventoryService {
   }
 
   // Record a purchase (creates ingredient_stock entry)
-  static async recordPurchase(data: {
-    ingredientId: string;
-    storageLocationId: string;
-    quantity: number;
-    batchNumber?: string;
-    expirationDate?: string;
-    purchaseDate: string;
-    purchasePrice: number;
-    supplierId: string;
-  }) {
+  static async recordPurchase(
+    data: {
+      ingredientId: string;
+      storageLocationId: string;
+      quantity: number;
+      batchNumber?: string;
+      expirationDate?: string;
+      purchaseDate: string;
+      purchasePrice: number;
+      supplierId: string;
+    },
+    userId: string
+  ) {
     // Verify ingredient exists
     const [ingredient] = await db
       .select()
       .from(ingredients)
-      .where(eq(ingredients.id, data.ingredientId))
+      .where(
+        and(
+          eq(ingredients.id, data.ingredientId),
+          eq(ingredients.userId, userId)
+        )
+      )
       .limit(1);
     if (!ingredient) {
       throw new Error("Ingredient not found");
@@ -114,7 +145,12 @@ export class InventoryService {
     const [location] = await db
       .select()
       .from(storageLocations)
-      .where(eq(storageLocations.id, data.storageLocationId))
+      .where(
+        and(
+          eq(storageLocations.id, data.storageLocationId),
+          eq(storageLocations.userId, userId)
+        )
+      )
       .limit(1);
     if (!location) {
       throw new Error("Storage location not found");
@@ -124,7 +160,9 @@ export class InventoryService {
     const [supplier] = await db
       .select()
       .from(suppliers)
-      .where(eq(suppliers.id, data.supplierId))
+      .where(
+        and(eq(suppliers.id, data.supplierId), eq(suppliers.userId, userId))
+      )
       .limit(1);
     if (!supplier) {
       throw new Error("Supplier not found");
@@ -148,15 +186,17 @@ export class InventoryService {
           supplierId: data.supplierId,
           createdAt: sql`now()`,
           updatedAt: sql`now()`,
+          userId,
         })
         .returning();
 
       // Trigger analytics recalculation (async - don't block)
       setImmediate(async () => {
         try {
-          await InventoryAnalyticsService.saveDailySnapshot();
+          await InventoryAnalyticsService.saveDailySnapshot(userId);
           await InventoryAnalyticsService.updateIngredientAnalytics(
-            data.ingredientId
+            data.ingredientId,
+            userId
           );
         } catch (error) {
           console.error("Error updating analytics after purchase:", error);
@@ -179,18 +219,26 @@ export class InventoryService {
   }
 
   // Record ingredient usage
-  static async recordUsage(data: {
-    ingredientStockId: string;
-    quantityUsed: number;
-    date: string;
-    reason?: string;
-    notes?: string;
-  }) {
+  static async recordUsage(
+    data: {
+      ingredientStockId: string;
+      quantityUsed: number;
+      date: string;
+      reason?: string;
+      notes?: string;
+    },
+    userId: string
+  ) {
     // Verify stock exists
     const [stock] = await db
       .select()
       .from(ingredientStock)
-      .where(eq(ingredientStock.id, data.ingredientStockId))
+      .where(
+        and(
+          eq(ingredientStock.id, data.ingredientStockId),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .limit(1);
     if (!stock) {
       throw new Error("Ingredient stock not found");
@@ -198,7 +246,8 @@ export class InventoryService {
 
     // Check if enough quantity remains
     const remaining = await this.calculateRemainingQuantity(
-      data.ingredientStockId
+      data.ingredientStockId,
+      userId
     );
     if (parseFloat(remaining) < data.quantityUsed) {
       throw new Error("Insufficient stock available");
@@ -219,16 +268,22 @@ export class InventoryService {
     const [stockEntry] = await db
       .select({ ingredientId: ingredientStock.ingredientId })
       .from(ingredientStock)
-      .where(eq(ingredientStock.id, data.ingredientStockId))
+      .where(
+        and(
+          eq(ingredientStock.id, data.ingredientStockId),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .limit(1);
 
     // Trigger analytics recalculation (async)
     setImmediate(async () => {
       try {
-        await InventoryAnalyticsService.saveDailySnapshot();
+        await InventoryAnalyticsService.saveDailySnapshot(userId);
         if (stockEntry) {
           await InventoryAnalyticsService.updateIngredientAnalytics(
-            stockEntry.ingredientId
+            stockEntry.ingredientId,
+            userId
           );
         }
       } catch (error) {
@@ -240,18 +295,26 @@ export class InventoryService {
   }
 
   // Record spoilage/waste
-  static async recordSpoilage(data: {
-    ingredientStockId: string;
-    quantity: number;
-    reason: string;
-    date: string;
-    notes?: string;
-  }) {
+  static async recordSpoilage(
+    data: {
+      ingredientStockId: string;
+      quantity: number;
+      reason: string;
+      date: string;
+      notes?: string;
+    },
+    userId: string
+  ) {
     // Verify stock exists
     const [stock] = await db
       .select()
       .from(ingredientStock)
-      .where(eq(ingredientStock.id, data.ingredientStockId))
+      .where(
+        and(
+          eq(ingredientStock.id, data.ingredientStockId),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .limit(1);
     if (!stock) {
       throw new Error("Ingredient stock not found");
@@ -259,7 +322,8 @@ export class InventoryService {
 
     // Check if enough quantity remains
     const remaining = await this.calculateRemainingQuantity(
-      data.ingredientStockId
+      data.ingredientStockId,
+      userId
     );
     if (parseFloat(remaining) < data.quantity) {
       throw new Error("Insufficient stock available");
@@ -280,16 +344,22 @@ export class InventoryService {
     const [stockEntry] = await db
       .select({ ingredientId: ingredientStock.ingredientId })
       .from(ingredientStock)
-      .where(eq(ingredientStock.id, data.ingredientStockId))
+      .where(
+        and(
+          eq(ingredientStock.id, data.ingredientStockId),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .limit(1);
 
     // Trigger analytics recalculation (async)
     setImmediate(async () => {
       try {
-        await InventoryAnalyticsService.saveDailySnapshot();
+        await InventoryAnalyticsService.saveDailySnapshot(userId);
         if (stockEntry) {
           await InventoryAnalyticsService.updateIngredientAnalytics(
-            stockEntry.ingredientId
+            stockEntry.ingredientId,
+            userId
           );
         }
       } catch (error) {
@@ -300,63 +370,62 @@ export class InventoryService {
     return newSpoilage;
   }
 
-  // Get all stock levels (aggregated by ingredient) - OPTIMIZED VERSION
-  static async getAllStock(): Promise<StockSummary[]> {
+  // Get all stock levels (aggregated by ingredient) - OPTIMIZED WITH SQL
+  static async getAllStock(userId: string): Promise<StockSummary[]> {
     // Get all ingredients
-    const allIngredients = await db.select().from(ingredients);
+    const allIngredients = await db
+      .select()
+      .from(ingredients)
+      .where(eq(ingredients.userId, userId));
     if (allIngredients.length === 0) return [];
 
-    // Get ALL stock entries in one query
-    const allStockEntries = await db
+    // Use SQL to calculate remaining quantities with aggregations
+    // This is much faster than doing it in JavaScript
+    const stockWithRemaining = await db
       .select({
-        id: ingredientStock.id,
         ingredientId: ingredientStock.ingredientId,
-        quantity: ingredientStock.quantity,
         storageLocationId: ingredientStock.storageLocationId,
-      })
-      .from(ingredientStock);
-
-    // Get ALL usage records in one query, grouped by stock ID
-    const allUsage = await db
-      .select({
-        ingredientStockId: usageHistory.ingredientStockId,
+        originalQuantity: ingredientStock.quantity,
         totalUsed: sql<string>`COALESCE(SUM(${usageHistory.quantityUsed}), 0)`,
-      })
-      .from(usageHistory)
-      .groupBy(usageHistory.ingredientStockId);
-
-    // Get ALL spoilage records in one query, grouped by stock ID
-    const allSpoilage = await db
-      .select({
-        ingredientStockId: spoilageRecords.ingredientStockId,
         totalSpoiled: sql<string>`COALESCE(SUM(${spoilageRecords.quantity}), 0)`,
       })
-      .from(spoilageRecords)
-      .groupBy(spoilageRecords.ingredientStockId);
+      .from(ingredientStock)
+      .leftJoin(
+        usageHistory,
+        eq(usageHistory.ingredientStockId, ingredientStock.id)
+      )
+      .leftJoin(
+        spoilageRecords,
+        eq(spoilageRecords.ingredientStockId, ingredientStock.id)
+      )
+      .where(eq(ingredientStock.userId, userId))
+      .groupBy(
+        ingredientStock.id,
+        ingredientStock.ingredientId,
+        ingredientStock.storageLocationId,
+        ingredientStock.quantity
+      );
 
     // Get all storage locations
-    const allLocations = await db.select().from(storageLocations);
+    const allLocations = await db
+      .select()
+      .from(storageLocations)
+      .where(eq(storageLocations.userId, userId));
     const locationMap = new Map(allLocations.map((loc) => [loc.id, loc.name]));
 
-    // Create maps for quick lookup
-    const usageMap = new Map(
-      allUsage.map((u) => [u.ingredientStockId, parseFloat(u.totalUsed)])
-    );
-    const spoilageMap = new Map(
-      allSpoilage.map((s) => [s.ingredientStockId, parseFloat(s.totalSpoiled)])
-    );
-
-    // Group stock by ingredient and location
+    // Group by ingredient and location, calculating remaining in JavaScript (minimal work)
     const stockByIngredient = new Map<
       string,
-      Map<string, { quantity: number; remaining: number }>
+      Map<string, { remaining: number }>
     >();
 
-    for (const stock of allStockEntries) {
-      const originalQty = parseFloat(stock.quantity);
-      const used = usageMap.get(stock.id) || 0;
-      const spoiled = spoilageMap.get(stock.id) || 0;
+    for (const stock of stockWithRemaining) {
+      const originalQty = parseFloat(stock.originalQuantity);
+      const used = parseFloat(stock.totalUsed);
+      const spoiled = parseFloat(stock.totalSpoiled);
       const remaining = Math.max(0, originalQty - used - spoiled);
+
+      if (remaining <= 0) continue; // Skip zero/negative stock
 
       if (!stockByIngredient.has(stock.ingredientId)) {
         stockByIngredient.set(stock.ingredientId, new Map());
@@ -364,13 +433,9 @@ export class InventoryService {
       const ingredientStock = stockByIngredient.get(stock.ingredientId)!;
 
       if (!ingredientStock.has(stock.storageLocationId)) {
-        ingredientStock.set(stock.storageLocationId, {
-          quantity: 0,
-          remaining: 0,
-        });
+        ingredientStock.set(stock.storageLocationId, { remaining: 0 });
       }
       const locationStock = ingredientStock.get(stock.storageLocationId)!;
-      locationStock.quantity += originalQty;
       locationStock.remaining += remaining;
     }
 
@@ -419,13 +484,16 @@ export class InventoryService {
 
   // Get stock for a specific ingredient
   static async getIngredientStock(
-    ingredientId: string
+    ingredientId: string,
+    userId: string
   ): Promise<IngredientStockDetail[]> {
     // Verify ingredient exists
     const [ingredient] = await db
       .select()
       .from(ingredients)
-      .where(eq(ingredients.id, ingredientId))
+      .where(
+        and(eq(ingredients.id, ingredientId), eq(ingredients.userId, userId))
+      )
       .limit(1);
     if (!ingredient) {
       throw new Error("Ingredient not found");
@@ -458,13 +526,21 @@ export class InventoryService {
         eq(ingredientStock.storageLocationId, storageLocations.id)
       )
       .innerJoin(suppliers, eq(ingredientStock.supplierId, suppliers.id))
-      .where(eq(ingredientStock.ingredientId, ingredientId))
+      .where(
+        and(
+          eq(ingredientStock.ingredientId, ingredientId),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .orderBy(desc(ingredientStock.purchaseDate));
 
     // Calculate remaining quantity for each entry
     const details: IngredientStockDetail[] = [];
     for (const entry of stockEntries) {
-      const remainingQuantity = await this.calculateRemainingQuantity(entry.id);
+      const remainingQuantity = await this.calculateRemainingQuantity(
+        entry.id,
+        userId
+      );
       details.push({
         id: entry.id,
         ingredientId: entry.ingredientId,
@@ -500,12 +576,15 @@ export class InventoryService {
   }
 
   // Get usage history
-  static async getUsageHistory(params?: {
-    startDate?: string;
-    endDate?: string;
-    ingredientId?: string;
-  }) {
-    const conditions = [];
+  static async getUsageHistory(
+    userId: string,
+    params?: {
+      startDate?: string;
+      endDate?: string;
+      ingredientId?: string;
+    }
+  ) {
+    const conditions: any[] = [eq(ingredientStock.userId, userId)];
     if (params?.startDate) {
       conditions.push(gte(usageHistory.date, params.startDate));
     }
@@ -534,9 +613,7 @@ export class InventoryService {
       )
       .innerJoin(ingredients, eq(ingredientStock.ingredientId, ingredients.id));
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as any;
-    }
+    query = query.where(and(...conditions)) as any;
 
     const results = await query.orderBy(desc(usageHistory.date));
 
@@ -558,7 +635,7 @@ export class InventoryService {
   }
 
   // Get items expiring soon - OPTIMIZED VERSION
-  static async getExpiringItems(days: number = 7) {
+  static async getExpiringItems(userId: string, days: number = 7) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const futureDate = new Date();
@@ -588,6 +665,7 @@ export class InventoryService {
       )
       .where(
         and(
+          eq(ingredientStock.userId, userId),
           sql`${ingredientStock.expirationDate} IS NOT NULL`,
           lte(
             ingredientStock.expirationDate,
@@ -645,5 +723,268 @@ export class InventoryService {
     }
 
     return items;
+  }
+
+  // OPTIMIZED: Batch calculate remaining quantities for multiple stock entries
+  static async batchCalculateRemainingQuantities(
+    stockIds: string[],
+    userId: string
+  ): Promise<Map<string, string>> {
+    if (stockIds.length === 0) {
+      return new Map();
+    }
+
+    // Get all stock entries in one query
+    const stockEntries = await db
+      .select({
+        id: ingredientStock.id,
+        quantity: ingredientStock.quantity,
+      })
+      .from(ingredientStock)
+      .where(
+        and(
+          inArray(ingredientStock.id, stockIds),
+          eq(ingredientStock.userId, userId)
+        )
+      );
+
+    if (stockEntries.length === 0) {
+      return new Map();
+    }
+
+    // Get ALL usage in one batch query
+    const allUsage = await db
+      .select({
+        ingredientStockId: usageHistory.ingredientStockId,
+        totalUsed: sql<string>`COALESCE(SUM(${usageHistory.quantityUsed}), 0)`,
+      })
+      .from(usageHistory)
+      .innerJoin(
+        ingredientStock,
+        eq(usageHistory.ingredientStockId, ingredientStock.id)
+      )
+      .where(
+        and(
+          inArray(usageHistory.ingredientStockId, stockIds),
+          eq(ingredientStock.userId, userId)
+        )
+      )
+      .groupBy(usageHistory.ingredientStockId);
+
+    // Get ALL spoilage in one batch query
+    const allSpoilage = await db
+      .select({
+        ingredientStockId: spoilageRecords.ingredientStockId,
+        totalSpoiled: sql<string>`COALESCE(SUM(${spoilageRecords.quantity}), 0)`,
+      })
+      .from(spoilageRecords)
+      .innerJoin(
+        ingredientStock,
+        eq(spoilageRecords.ingredientStockId, ingredientStock.id)
+      )
+      .where(
+        and(
+          inArray(spoilageRecords.ingredientStockId, stockIds),
+          eq(ingredientStock.userId, userId)
+        )
+      )
+      .groupBy(spoilageRecords.ingredientStockId);
+
+    // Create maps for quick lookup
+    const usageMap = new Map(
+      allUsage.map((u) => [u.ingredientStockId, parseFloat(u.totalUsed)])
+    );
+    const spoilageMap = new Map(
+      allSpoilage.map((s) => [s.ingredientStockId, parseFloat(s.totalSpoiled)])
+    );
+
+    // Calculate remaining quantity for each (using maps, no DB queries!)
+    const result = new Map<string, string>();
+    for (const stock of stockEntries) {
+      const quantity = parseFloat(stock.quantity);
+      const used = usageMap.get(stock.id) || 0;
+      const spoiled = spoilageMap.get(stock.id) || 0;
+      const remaining = Math.max(0, quantity - used - spoiled);
+      result.set(stock.id, remaining.toFixed(2));
+    }
+
+    return result;
+  }
+
+  // OPTIMIZED: Get stock for multiple ingredients with remaining quantities
+  static async batchGetIngredientStock(
+    ingredientIds: string[],
+    userId: string
+  ): Promise<Map<string, IngredientStockDetail[]>> {
+    if (ingredientIds.length === 0) {
+      return new Map();
+    }
+
+    // Get all stock entries for all ingredients in one query
+    const stockEntries = await db
+      .select({
+        id: ingredientStock.id,
+        ingredientId: ingredientStock.ingredientId,
+        quantity: ingredientStock.quantity,
+        batchNumber: ingredientStock.batchNumber,
+        expirationDate: ingredientStock.expirationDate,
+        purchaseDate: ingredientStock.purchaseDate,
+        purchasePrice: ingredientStock.purchasePrice,
+        ingredientId2: ingredients.id,
+        ingredientName: ingredients.name,
+        unitId: units.id,
+        unitName: units.name,
+        locationId: storageLocations.id,
+        locationName: storageLocations.name,
+        locationDescription: storageLocations.description,
+        supplierId: suppliers.id,
+        supplierName: suppliers.name,
+      })
+      .from(ingredientStock)
+      .innerJoin(ingredients, eq(ingredientStock.ingredientId, ingredients.id))
+      .innerJoin(units, eq(ingredients.unitId, units.id))
+      .innerJoin(
+        storageLocations,
+        eq(ingredientStock.storageLocationId, storageLocations.id)
+      )
+      .innerJoin(suppliers, eq(ingredientStock.supplierId, suppliers.id))
+      .where(
+        and(
+          inArray(ingredientStock.ingredientId, ingredientIds),
+          eq(ingredientStock.userId, userId)
+        )
+      )
+      .orderBy(desc(ingredientStock.purchaseDate));
+
+    if (stockEntries.length === 0) {
+      return new Map();
+    }
+
+    // Batch calculate remaining quantities
+    const stockIds = stockEntries.map((e) => e.id);
+    const remainingQuantities = await this.batchCalculateRemainingQuantities(
+      stockIds,
+      userId
+    );
+
+    // Group by ingredient ID
+    const result = new Map<string, IngredientStockDetail[]>();
+    for (const entry of stockEntries) {
+      if (!result.has(entry.ingredientId)) {
+        result.set(entry.ingredientId, []);
+      }
+
+      const remaining = remainingQuantities.get(entry.id) || "0.00";
+      result.get(entry.ingredientId)!.push({
+        id: entry.id,
+        ingredientId: entry.ingredientId,
+        ingredient: {
+          id: entry.ingredientId2,
+          name: entry.ingredientName,
+          unit: {
+            id: entry.unitId,
+            name: entry.unitName,
+          },
+        },
+        storageLocation: {
+          id: entry.locationId,
+          name: entry.locationName,
+          description: entry.locationDescription,
+        },
+        quantity: entry.quantity,
+        remainingQuantity: remaining,
+        batchNumber: entry.batchNumber,
+        expirationDate: entry.expirationDate
+          ? String(entry.expirationDate).split("T")[0]
+          : null,
+        purchaseDate: String(entry.purchaseDate).split("T")[0],
+        purchasePrice: entry.purchasePrice,
+        supplier: {
+          id: entry.supplierId,
+          name: entry.supplierName,
+        },
+      });
+    }
+
+    return result;
+  }
+
+  // OPTIMIZED: Batch record usage in a single transaction
+  static async batchRecordUsage(
+    usages: Array<{
+      ingredientStockId: string;
+      quantityUsed: number;
+      date: string;
+      reason?: string;
+      notes?: string;
+    }>,
+    userId: string
+  ): Promise<void> {
+    if (usages.length === 0) {
+      return;
+    }
+
+    // Get all stock IDs
+    const stockIds = [...new Set(usages.map((u) => u.ingredientStockId))];
+
+    // Batch calculate remaining quantities
+    const remainingQuantities = await this.batchCalculateRemainingQuantities(
+      stockIds,
+      userId
+    );
+
+    // Validate all usages before inserting
+    const usageRecords = [];
+    for (const usage of usages) {
+      const remaining = parseFloat(remainingQuantities.get(usage.ingredientStockId) || "0");
+      if (remaining < usage.quantityUsed) {
+        throw new Error(
+          `Insufficient stock available for stock ID ${usage.ingredientStockId}`
+        );
+      }
+
+      usageRecords.push({
+        ingredientStockId: usage.ingredientStockId,
+        quantityUsed: usage.quantityUsed.toString(),
+        date: usage.date,
+        reason: usage.reason || null,
+        notes: usage.notes || null,
+      });
+    }
+
+    // Insert all usage records in one transaction
+    await db.insert(usageHistory).values(usageRecords);
+
+    // Trigger analytics recalculation (async)
+    const ingredientIds = new Set<string>();
+    const stockEntries = await db
+      .select({
+        ingredientId: ingredientStock.ingredientId,
+      })
+      .from(ingredientStock)
+      .where(
+        and(
+          inArray(ingredientStock.id, stockIds),
+          eq(ingredientStock.userId, userId)
+        )
+      );
+
+    for (const entry of stockEntries) {
+      ingredientIds.add(entry.ingredientId);
+    }
+
+    setImmediate(async () => {
+      try {
+        await InventoryAnalyticsService.saveDailySnapshot(userId);
+        for (const ingredientId of ingredientIds) {
+          await InventoryAnalyticsService.updateIngredientAnalytics(
+            ingredientId,
+            userId
+          );
+        }
+      } catch (error) {
+        console.error("Error updating analytics after batch usage:", error);
+      }
+    });
   }
 }

@@ -9,7 +9,7 @@ import {
   ingredientAnalytics,
   ingredients,
 } from "../db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 const router = Router();
 router.use(authenticate);
@@ -18,21 +18,24 @@ router.use(authenticate);
  * GET /api/inventory/analytics/overview
  * Get current overall statistics
  */
-router.get("/overview", async (_req, res, next) => {
+router.get("/overview", async (req, res, next) => {
   try {
+    const userId = req.user!.userId;
     // Get latest snapshot
     const [latest] = await db
       .select()
       .from(dailyInventorySnapshots)
+      .where(eq(dailyInventorySnapshots.userId, userId))
       .orderBy(desc(dailyInventorySnapshots.snapshotDate))
       .limit(1);
 
     if (!latest) {
       // First time - calculate and save
-      await InventoryAnalyticsService.saveDailySnapshot();
+      await InventoryAnalyticsService.saveDailySnapshot(userId);
       const [newSnapshot] = await db
         .select()
         .from(dailyInventorySnapshots)
+        .where(eq(dailyInventorySnapshots.userId, userId))
         .orderBy(desc(dailyInventorySnapshots.snapshotDate))
         .limit(1);
       return res.json({ status: "success", data: newSnapshot });
@@ -62,6 +65,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
+      const userId = req.user!.userId;
       let startDate: Date;
       let endDate = new Date();
 
@@ -78,6 +82,7 @@ router.get(
 
       // Calculate trend from actual purchase data (not just snapshots)
       const trend = await InventoryAnalyticsService.calculateValueTrend(
+        userId,
         startDate,
         endDate
       );
@@ -100,12 +105,14 @@ router.get(
   validate([query("limit").optional().isInt({ min: 1, max: 20 }).toInt()]),
   async (req, res, next) => {
     try {
+      const userId = req.user!.userId;
       const limit = parseInt((req.query.limit as string) || "5");
 
       // Get latest snapshot
       const [latest] = await db
         .select()
         .from(dailyInventorySnapshots)
+        .where(eq(dailyInventorySnapshots.userId, userId))
         .orderBy(desc(dailyInventorySnapshots.snapshotDate))
         .limit(1);
 
@@ -143,11 +150,13 @@ router.get(
   validate([query("limit").optional().isInt({ min: 1, max: 20 }).toInt()]),
   async (req, res, next) => {
     try {
+      const userId = req.user!.userId;
       const limit = parseInt((req.query.limit as string) || "5");
 
       const [latest] = await db
         .select()
         .from(dailyInventorySnapshots)
+        .where(eq(dailyInventorySnapshots.userId, userId))
         .orderBy(desc(dailyInventorySnapshots.snapshotDate))
         .limit(1);
 
@@ -177,11 +186,13 @@ router.get(
  * GET /api/inventory/analytics/category-distribution
  * Get stock distribution by category
  */
-router.get("/category-distribution", async (_req, res, next) => {
+router.get("/category-distribution", async (req, res, next) => {
   try {
+    const userId = req.user!.userId;
     const [latest] = await db
       .select()
       .from(dailyInventorySnapshots)
+      .where(eq(dailyInventorySnapshots.userId, userId))
       .orderBy(desc(dailyInventorySnapshots.snapshotDate))
       .limit(1);
 
@@ -213,11 +224,13 @@ router.get(
   validate([query("limit").optional().isInt({ min: 1, max: 50 }).toInt()]),
   async (req, res, next) => {
     try {
+      const userId = req.user!.userId;
       const limit = parseInt((req.query.limit as string) || "10");
 
       const [latest] = await db
         .select()
         .from(dailyInventorySnapshots)
+        .where(eq(dailyInventorySnapshots.userId, userId))
         .orderBy(desc(dailyInventorySnapshots.snapshotDate))
         .limit(1);
 
@@ -256,6 +269,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
+      const userId = req.user!.userId;
       const timeRange = (req.query.timeRange as "7d" | "30d" | "90d") || "30d";
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
       const startDate = new Date();
@@ -264,6 +278,7 @@ router.get(
 
       // Calculate purchase values from actual purchase data
       const trend = await InventoryAnalyticsService.calculatePurchaseValueTrend(
+        userId,
         startDate,
         endDate
       );
@@ -291,11 +306,17 @@ router.get(
   async (req, res, next) => {
     try {
       const { ingredientId } = req.params;
+      const userId = req.user!.userId;
 
       const [analytics] = await db
         .select()
         .from(ingredientAnalytics)
-        .where(eq(ingredientAnalytics.ingredientId, ingredientId))
+        .where(
+          and(
+            eq(ingredientAnalytics.ingredientId, ingredientId),
+            eq(ingredientAnalytics.userId, userId)
+          )
+        )
         .limit(1);
 
       if (!analytics) {
@@ -303,12 +324,18 @@ router.get(
         // This is necessary to show data, but calculation is optimized
         try {
           await InventoryAnalyticsService.updateIngredientAnalytics(
-            ingredientId
+            ingredientId,
+            userId
           );
           const [newAnalytics] = await db
             .select()
             .from(ingredientAnalytics)
-            .where(eq(ingredientAnalytics.ingredientId, ingredientId))
+            .where(
+              and(
+                eq(ingredientAnalytics.ingredientId, ingredientId),
+                eq(ingredientAnalytics.userId, userId)
+              )
+            )
             .limit(1);
 
           if (newAnalytics) {
@@ -344,7 +371,8 @@ router.get(
         setImmediate(async () => {
           try {
             await InventoryAnalyticsService.updateIngredientAnalytics(
-              ingredientId
+              ingredientId,
+              userId
             );
           } catch (error) {
             console.error(
@@ -385,19 +413,33 @@ router.get(
       const { ingredientId } = req.params;
       const timeRange = (req.query.timeRange as "7d" | "30d" | "90d") || "30d";
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+      const userId = req.user!.userId;
 
       const [analytics] = await db
         .select()
         .from(ingredientAnalytics)
-        .where(eq(ingredientAnalytics.ingredientId, ingredientId))
+        .where(
+          and(
+            eq(ingredientAnalytics.ingredientId, ingredientId),
+            eq(ingredientAnalytics.userId, userId)
+          )
+        )
         .limit(1);
 
       if (!analytics) {
-        await InventoryAnalyticsService.updateIngredientAnalytics(ingredientId);
+        await InventoryAnalyticsService.updateIngredientAnalytics(
+          ingredientId,
+          userId
+        );
         const [newAnalytics] = await db
           .select()
           .from(ingredientAnalytics)
-          .where(eq(ingredientAnalytics.ingredientId, ingredientId))
+          .where(
+            and(
+              eq(ingredientAnalytics.ingredientId, ingredientId),
+              eq(ingredientAnalytics.userId, userId)
+            )
+          )
           .limit(1);
         const priceTrend = ((newAnalytics?.priceTrend as any) || []).slice(
           -days
@@ -434,19 +476,33 @@ router.get(
       const { ingredientId } = req.params;
       const timeRange = (req.query.timeRange as "7d" | "30d" | "90d") || "30d";
       const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+      const userId = req.user!.userId;
 
       const [analytics] = await db
         .select()
         .from(ingredientAnalytics)
-        .where(eq(ingredientAnalytics.ingredientId, ingredientId))
+        .where(
+          and(
+            eq(ingredientAnalytics.ingredientId, ingredientId),
+            eq(ingredientAnalytics.userId, userId)
+          )
+        )
         .limit(1);
 
       if (!analytics) {
-        await InventoryAnalyticsService.updateIngredientAnalytics(ingredientId);
+        await InventoryAnalyticsService.updateIngredientAnalytics(
+          ingredientId,
+          userId
+        );
         const [newAnalytics] = await db
           .select()
           .from(ingredientAnalytics)
-          .where(eq(ingredientAnalytics.ingredientId, ingredientId))
+          .where(
+            and(
+              eq(ingredientAnalytics.ingredientId, ingredientId),
+              eq(ingredientAnalytics.userId, userId)
+            )
+          )
           .limit(1);
         const stockValueTrend = (
           (newAnalytics?.stockValueTrend as any) || []
@@ -468,16 +524,18 @@ router.get(
  * POST /api/inventory/analytics/refresh
  * Manually refresh all analytics (admin only)
  */
-router.post("/refresh", authenticate, async (_req, res, next) => {
+router.post("/refresh", authenticate, async (req, res, next) => {
   try {
-    await InventoryAnalyticsService.saveDailySnapshot();
+    const userId = req.user!.userId;
+    await InventoryAnalyticsService.saveDailySnapshot(userId);
 
     // Refresh all ingredient analytics
     const allIngredients = await db
       .select({ id: ingredients.id })
-      .from(ingredients);
+      .from(ingredients)
+      .where(eq(ingredients.userId, userId));
     for (const ing of allIngredients) {
-      await InventoryAnalyticsService.updateIngredientAnalytics(ing.id);
+      await InventoryAnalyticsService.updateIngredientAnalytics(ing.id, userId);
     }
 
     return res.json({

@@ -9,9 +9,10 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const ingredients = await IngredientService.getAllIngredients();
+    const userId = req.user!.userId;
+    const ingredients = await IngredientService.getAllIngredients(userId);
     res.json({
       status: "success",
       data: ingredients,
@@ -27,7 +28,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const ingredient = await IngredientService.getIngredientById(id);
+      const userId = req.user!.userId;
+      const ingredient = await IngredientService.getIngredientById(id, userId);
 
       if (!ingredient) {
         const error: AppError = new Error("Ingredient not found");
@@ -59,15 +61,19 @@ router.post(
   async (req, res, next) => {
     try {
       const { name, categoryId, unitId, restockThreshold } = req.body;
+      const userId = req.user!.userId;
 
-      const ingredient = await IngredientService.createIngredient({
-        name,
-        categoryId,
-        unitId,
-        restockThreshold: restockThreshold
-          ? parseFloat(restockThreshold)
-          : undefined,
-      });
+      const ingredient = await IngredientService.createIngredient(
+        {
+          name,
+          categoryId,
+          unitId,
+          restockThreshold: restockThreshold
+            ? parseFloat(restockThreshold)
+            : undefined,
+        },
+        userId
+      );
 
       res.status(201).json({
         status: "success",
@@ -113,15 +119,20 @@ router.put(
     try {
       const { id } = req.params;
       const { name, categoryId, unitId, restockThreshold } = req.body;
+      const userId = req.user!.userId;
 
-      const ingredient = await IngredientService.updateIngredient(id, {
-        name,
-        categoryId,
-        unitId,
-        restockThreshold: restockThreshold
-          ? parseFloat(restockThreshold)
-          : undefined,
-      });
+      const ingredient = await IngredientService.updateIngredient(
+        id,
+        {
+          name,
+          categoryId,
+          unitId,
+          restockThreshold: restockThreshold
+            ? parseFloat(restockThreshold)
+            : undefined,
+        },
+        userId
+      );
 
       res.json({
         status: "success",
@@ -152,7 +163,8 @@ router.delete(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      await IngredientService.deleteIngredient(id);
+      const userId = req.user!.userId;
+      await IngredientService.deleteIngredient(id, userId);
 
       res.json({
         status: "success",
@@ -176,7 +188,8 @@ router.get(
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const stock = await IngredientService.getIngredientStock(id);
+      const userId = req.user!.userId;
+      const stock = await IngredientService.getIngredientStock(id, userId);
 
       res.json({
         status: "success",

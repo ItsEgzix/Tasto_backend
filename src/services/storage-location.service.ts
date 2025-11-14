@@ -1,31 +1,45 @@
 import { db } from "../db";
 import { storageLocations } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export class StorageLocationService {
-  static async getAllStorageLocations() {
-    return db.select().from(storageLocations).orderBy(storageLocations.name);
+  static async getAllStorageLocations(userId: string) {
+    return db
+      .select()
+      .from(storageLocations)
+      .where(eq(storageLocations.userId, userId))
+      .orderBy(storageLocations.name);
   }
 
-  static async getStorageLocationById(id: string) {
+  static async getStorageLocationById(id: string, userId: string) {
     const [location] = await db
       .select()
       .from(storageLocations)
-      .where(eq(storageLocations.id, id))
+      .where(
+        and(eq(storageLocations.id, id), eq(storageLocations.userId, userId))
+      )
       .limit(1);
 
     return location || null;
   }
 
-  static async createStorageLocation(data: {
-    name: string;
-    description?: string;
-  }) {
+  static async createStorageLocation(
+    data: {
+      name: string;
+      description?: string;
+    },
+    userId: string
+  ) {
     // Check if storage location name already exists
     const [existing] = await db
       .select()
       .from(storageLocations)
-      .where(eq(storageLocations.name, data.name))
+      .where(
+        and(
+          eq(storageLocations.name, data.name),
+          eq(storageLocations.userId, userId)
+        )
+      )
       .limit(1);
 
     if (existing) {
@@ -37,6 +51,7 @@ export class StorageLocationService {
       .values({
         name: data.name,
         description: data.description || null,
+        userId,
       })
       .returning();
 
@@ -48,13 +63,16 @@ export class StorageLocationService {
     data: {
       name?: string;
       description?: string;
-    }
+    },
+    userId: string
   ) {
     // Check if storage location exists
     const [existing] = await db
       .select()
       .from(storageLocations)
-      .where(eq(storageLocations.id, id))
+      .where(
+        and(eq(storageLocations.id, id), eq(storageLocations.userId, userId))
+      )
       .limit(1);
 
     if (!existing) {
@@ -66,7 +84,12 @@ export class StorageLocationService {
       const [nameConflict] = await db
         .select()
         .from(storageLocations)
-        .where(eq(storageLocations.name, data.name))
+        .where(
+          and(
+            eq(storageLocations.name, data.name),
+            eq(storageLocations.userId, userId)
+          )
+        )
         .limit(1);
 
       if (nameConflict) {
@@ -89,23 +112,29 @@ export class StorageLocationService {
     await db
       .update(storageLocations)
       .set(updateData)
-      .where(eq(storageLocations.id, id));
+      .where(
+        and(eq(storageLocations.id, id), eq(storageLocations.userId, userId))
+      );
 
     const [updated] = await db
       .select()
       .from(storageLocations)
-      .where(eq(storageLocations.id, id))
+      .where(
+        and(eq(storageLocations.id, id), eq(storageLocations.userId, userId))
+      )
       .limit(1);
 
     return updated!;
   }
 
-  static async deleteStorageLocation(id: string) {
+  static async deleteStorageLocation(id: string, userId: string) {
     // Check if storage location exists
     const [existing] = await db
       .select()
       .from(storageLocations)
-      .where(eq(storageLocations.id, id))
+      .where(
+        and(eq(storageLocations.id, id), eq(storageLocations.userId, userId))
+      )
       .limit(1);
 
     if (!existing) {
@@ -116,6 +145,10 @@ export class StorageLocationService {
     // If it is, prevent deletion or handle cascade
     // For now, allow deletion
 
-    await db.delete(storageLocations).where(eq(storageLocations.id, id));
+    await db
+      .delete(storageLocations)
+      .where(
+        and(eq(storageLocations.id, id), eq(storageLocations.userId, userId))
+      );
   }
 }

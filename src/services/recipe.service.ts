@@ -7,7 +7,8 @@ import {
   units,
   ingredientStock,
 } from "../db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, and } from "drizzle-orm";
+import { InventoryService } from "./inventory.service";
 
 export interface RecipeIngredientDetail {
   id: string;
@@ -59,7 +60,7 @@ export interface RecipeCost {
 
 export class RecipeService {
   // Get all recipes with basic info - OPTIMIZED VERSION
-  static async getAllRecipes(): Promise<
+  static async getAllRecipes(userId: string): Promise<
     (Omit<RecipeWithDetails, "ingredients"> & {
       estimatedCost: number | null;
     })[]
@@ -83,7 +84,9 @@ export class RecipeService {
         },
       })
       .from(recipes)
-      .leftJoin(recipeCategories, eq(recipes.categoryId, recipeCategories.id));
+      .leftJoin(recipeCategories, eq(recipes.categoryId, recipeCategories.id))
+      .where(eq(recipes.userId, userId))
+      .orderBy(desc(recipes.createdAt));
 
     if (result.length === 0) {
       return [];
@@ -130,7 +133,12 @@ export class RecipeService {
         purchaseDate: ingredientStock.purchaseDate,
       })
       .from(ingredientStock)
-      .where(inArray(ingredientStock.ingredientId, uniqueIngredientIds))
+      .where(
+        and(
+          inArray(ingredientStock.ingredientId, uniqueIngredientIds),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .orderBy(desc(ingredientStock.purchaseDate));
 
     // Group by ingredient ID and take the first (most recent) for each
@@ -205,7 +213,10 @@ export class RecipeService {
   }
 
   // Get recipe by ID with full details including ingredients - OPTIMIZED VERSION
-  static async getRecipeById(id: string): Promise<RecipeWithDetails | null> {
+  static async getRecipeById(
+    id: string,
+    userId: string
+  ): Promise<RecipeWithDetails | null> {
     // OPTIMIZED: Get recipe and ingredients in parallel (2 queries instead of sequential)
     const [recipeResult, recipeIngredientsData] = await Promise.all([
       // Query 1: Get recipe basic info with category
@@ -228,7 +239,7 @@ export class RecipeService {
         })
         .from(recipes)
         .leftJoin(recipeCategories, eq(recipes.categoryId, recipeCategories.id))
-        .where(eq(recipes.id, id))
+        .where(and(eq(recipes.id, id), eq(recipes.userId, userId)))
         .limit(1),
       // Query 2: Get recipe ingredients with ingredient and unit details
       db
@@ -255,7 +266,12 @@ export class RecipeService {
           eq(recipeIngredients.ingredientId, ingredients.id)
         )
         .leftJoin(units, eq(ingredients.unitId, units.id))
-        .where(eq(recipeIngredients.recipeId, id)),
+        .where(
+          and(
+            eq(recipeIngredients.recipeId, id),
+            eq(ingredients.userId, userId)
+          )
+        ),
     ]);
 
     const [recipe] = recipeResult;
@@ -295,19 +311,22 @@ export class RecipeService {
   }
 
   // Create new recipe
-  static async createRecipe(data: {
-    name: string;
-    categoryId: string;
-    description?: string;
-    instructions: string;
-    serves: number;
-    ingredients: Array<{ ingredientId: string; quantity: number }>;
-  }): Promise<RecipeWithDetails> {
+  static async createRecipe(
+    data: {
+      name: string;
+      categoryId: string;
+      description?: string;
+      instructions: string;
+      serves: number;
+      ingredients: Array<{ ingredientId: string; quantity: number }>;
+    },
+    userId: string
+  ): Promise<RecipeWithDetails> {
     // Check if recipe name already exists
     const [existing] = await db
       .select()
       .from(recipes)
-      .where(eq(recipes.name, data.name))
+      .where(and(eq(recipes.name, data.name), eq(recipes.userId, userId)))
       .limit(1);
 
     if (existing) {
@@ -318,7 +337,12 @@ export class RecipeService {
     const [category] = await db
       .select()
       .from(recipeCategories)
-      .where(eq(recipeCategories.id, data.categoryId))
+      .where(
+        and(
+          eq(recipeCategories.id, data.categoryId),
+          eq(recipeCategories.userId, userId)
+        )
+      )
       .limit(1);
 
     if (!category) {
@@ -330,7 +354,12 @@ export class RecipeService {
       const [ingredient] = await db
         .select()
         .from(ingredients)
-        .where(eq(ingredients.id, ing.ingredientId))
+        .where(
+          and(
+            eq(ingredients.id, ing.ingredientId),
+            eq(ingredients.userId, userId)
+          )
+        )
         .limit(1);
 
       if (!ingredient) {
@@ -347,6 +376,7 @@ export class RecipeService {
         description: data.description || null,
         instructions: data.instructions,
         serves: data.serves.toString(),
+        userId,
       })
       .returning();
 
@@ -362,7 +392,7 @@ export class RecipeService {
     }
 
     // Fetch and return complete recipe
-    const recipe = await this.getRecipeById(newRecipe.id);
+    const recipe = await this.getRecipeById(newRecipe.id, userId);
     if (!recipe) {
       throw new Error("Failed to create recipe");
     }
@@ -380,13 +410,14 @@ export class RecipeService {
       instructions?: string;
       serves?: number;
       ingredients?: Array<{ ingredientId: string; quantity: number }>;
-    }
+    },
+    userId: string
   ): Promise<RecipeWithDetails> {
     // Check if recipe exists
     const [existing] = await db
       .select()
       .from(recipes)
-      .where(eq(recipes.id, id))
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)))
       .limit(1);
 
     if (!existing) {
@@ -398,7 +429,7 @@ export class RecipeService {
       const [nameConflict] = await db
         .select()
         .from(recipes)
-        .where(eq(recipes.name, data.name))
+        .where(and(eq(recipes.name, data.name), eq(recipes.userId, userId)))
         .limit(1);
 
       if (nameConflict) {
@@ -411,7 +442,12 @@ export class RecipeService {
       const [category] = await db
         .select()
         .from(recipeCategories)
-        .where(eq(recipeCategories.id, data.categoryId))
+        .where(
+          and(
+            eq(recipeCategories.id, data.categoryId),
+            eq(recipeCategories.userId, userId)
+          )
+        )
         .limit(1);
 
       if (!category) {
@@ -425,7 +461,12 @@ export class RecipeService {
         const [ingredient] = await db
           .select()
           .from(ingredients)
-          .where(eq(ingredients.id, ing.ingredientId))
+          .where(
+            and(
+              eq(ingredients.id, ing.ingredientId),
+              eq(ingredients.userId, userId)
+            )
+          )
           .limit(1);
 
         if (!ingredient) {
@@ -453,7 +494,10 @@ export class RecipeService {
     if (data.instructions) updateData.instructions = data.instructions;
     if (data.serves !== undefined) updateData.serves = data.serves.toString();
 
-    await db.update(recipes).set(updateData).where(eq(recipes.id, id));
+    await db
+      .update(recipes)
+      .set(updateData)
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)));
 
     // Update ingredients if provided
     if (data.ingredients) {
@@ -475,7 +519,7 @@ export class RecipeService {
     }
 
     // Fetch updated recipe
-    const recipe = await this.getRecipeById(id);
+    const recipe = await this.getRecipeById(id, userId);
     if (!recipe) {
       throw new Error("Failed to update recipe");
     }
@@ -484,12 +528,12 @@ export class RecipeService {
   }
 
   // Delete recipe
-  static async deleteRecipe(id: string): Promise<void> {
+  static async deleteRecipe(id: string, userId: string): Promise<void> {
     // Check if recipe exists
     const [existing] = await db
       .select()
       .from(recipes)
-      .where(eq(recipes.id, id))
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)))
       .limit(1);
 
     if (!existing) {
@@ -499,15 +543,18 @@ export class RecipeService {
     // TODO: Check if recipe is used in production plans or menu plans
     // If it is, prevent deletion or handle cascade
 
-    await db.delete(recipes).where(eq(recipes.id, id));
+    await db
+      .delete(recipes)
+      .where(and(eq(recipes.id, id), eq(recipes.userId, userId)));
   }
 
   // Calculate recipe cost
   static async calculateRecipeCost(
     recipeId: string,
+    userId: string,
     desiredServings?: number
   ): Promise<RecipeCost> {
-    const recipe = await this.getRecipeById(recipeId);
+    const recipe = await this.getRecipeById(recipeId, userId);
 
     if (!recipe) {
       throw new Error("Recipe not found");
@@ -531,7 +578,12 @@ export class RecipeService {
           quantity: ingredientStock.quantity,
         })
         .from(ingredientStock)
-        .where(eq(ingredientStock.ingredientId, recipeIngredient.ingredient.id))
+        .where(
+          and(
+            eq(ingredientStock.ingredientId, recipeIngredient.ingredient.id),
+            eq(ingredientStock.userId, userId)
+          )
+        )
         .orderBy(desc(ingredientStock.purchaseDate))
         .limit(1);
 
@@ -561,6 +613,226 @@ export class RecipeService {
       breakdown,
       serves: servings,
       costPerServing,
+    };
+  }
+
+  // Complete a recipe - OPTIMIZED: Single API call with batch operations
+  static async completeRecipe(
+    recipeId: string,
+    userId: string,
+    options?: {
+      date?: string;
+      allowPartialStock?: boolean;
+      actualQuantities?: Array<{
+        ingredientId: string;
+        quantity: number;
+      }>;
+    }
+  ): Promise<{
+    success: boolean;
+    shortages?: Array<{
+      ingredientId: string;
+      ingredientName: string;
+      requiredQuantity: number;
+      availableQuantity: number;
+      shortageQuantity: number;
+      unit: string;
+    }>;
+  }> {
+    // Get recipe with ingredients (1 query)
+    const recipe = await this.getRecipeById(recipeId, userId);
+    if (!recipe) {
+      throw new Error("Recipe not found");
+    }
+
+    // Determine quantities to use (actualQuantities override or use recipe quantities)
+    const quantitiesToUse = new Map<string, number>();
+    if (options?.actualQuantities) {
+      for (const item of options.actualQuantities) {
+        quantitiesToUse.set(item.ingredientId, item.quantity);
+      }
+    } else {
+      for (const ingredient of recipe.ingredients) {
+        quantitiesToUse.set(ingredient.ingredient.id, parseFloat(ingredient.quantity));
+      }
+    }
+
+    // Get all ingredient IDs
+    const ingredientIds = Array.from(quantitiesToUse.keys());
+
+    // Create a map of ingredient info for quick lookup (including names and units)
+    const ingredientInfoMap = new Map<
+      string,
+      { name: string; unit: string }
+    >();
+    for (const ingredient of recipe.ingredients) {
+      // Defensive check: ensure ingredient data exists
+      if (
+        ingredient?.ingredient?.id &&
+        ingredient?.ingredient?.name &&
+        ingredient?.ingredient?.unit?.name
+      ) {
+        ingredientInfoMap.set(ingredient.ingredient.id, {
+          name: ingredient.ingredient.name,
+          unit: ingredient.ingredient.unit.name,
+        });
+      } else {
+        console.error(
+          `Invalid ingredient data in recipe ${recipeId}:`,
+          ingredient
+        );
+      }
+    }
+
+    // If actualQuantities is provided, we need to fetch ingredient names for any missing ones
+    if (options?.actualQuantities) {
+      const missingIngredientIds = ingredientIds.filter(
+        (id) => !ingredientInfoMap.has(id)
+      );
+      if (missingIngredientIds.length > 0) {
+        const missingIngredients = await db
+          .select({
+            id: ingredients.id,
+            name: ingredients.name,
+            unitName: units.name,
+          })
+          .from(ingredients)
+          .leftJoin(units, eq(ingredients.unitId, units.id))
+          .where(
+            and(
+              inArray(ingredients.id, missingIngredientIds),
+              eq(ingredients.userId, userId)
+            )
+          );
+
+        for (const ing of missingIngredients) {
+          if (ing.id && ing.name && ing.unitName) {
+            ingredientInfoMap.set(ing.id, {
+              name: ing.name,
+              unit: ing.unitName,
+            });
+          }
+        }
+      }
+    }
+
+    // Batch get stock for all ingredients (1-2 queries total)
+    const stockByIngredient = await InventoryService.batchGetIngredientStock(
+      ingredientIds,
+      userId
+    );
+
+    // Build usage plan with FIFO logic
+    const usageOperations: Array<{
+      ingredientStockId: string;
+      quantityUsed: number;
+      date: string;
+      reason: string;
+      notes: string;
+    }> = [];
+
+    const shortages: Array<{
+      ingredientId: string;
+      ingredientName: string;
+      requiredQuantity: number;
+      availableQuantity: number;
+      shortageQuantity: number;
+      unit: string;
+    }> = [];
+
+    const today = options?.date || new Date().toISOString().split("T")[0];
+
+    // Process all ingredients in quantitiesToUse (not just recipe.ingredients)
+    for (const ingredientId of ingredientIds) {
+      const requiredQuantity = quantitiesToUse.get(ingredientId) || 0;
+
+      if (requiredQuantity <= 0) {
+        continue;
+      }
+
+      // Get ingredient info (name and unit)
+      const ingredientInfo = ingredientInfoMap.get(ingredientId);
+      if (!ingredientInfo) {
+        // Skip if we can't find ingredient info (shouldn't happen, but handle gracefully)
+        console.error(
+          `Ingredient info not found for ID: ${ingredientId} in recipe ${recipeId}`
+        );
+        continue;
+      }
+
+      const stockEntries = stockByIngredient.get(ingredientId) || [];
+
+      if (stockEntries.length === 0) {
+        shortages.push({
+          ingredientId,
+          ingredientName: ingredientInfo.name,
+          requiredQuantity,
+          availableQuantity: 0,
+          shortageQuantity: requiredQuantity,
+          unit: ingredientInfo.unit,
+        });
+        continue;
+      }
+
+      // Sort by purchase date (oldest first) for FIFO
+      const sortedStock = [...stockEntries].sort(
+        (a, b) =>
+          new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime()
+      );
+
+      let remainingQuantity = requiredQuantity;
+      let totalAvailable = 0;
+
+      // Distribute usage across stock entries (FIFO)
+      for (const stock of sortedStock) {
+        if (remainingQuantity <= 0) break;
+
+        const available = parseFloat(stock.remainingQuantity);
+        if (available <= 0) continue;
+
+        totalAvailable += available;
+        const quantityToUse = Math.min(remainingQuantity, available);
+
+        usageOperations.push({
+          ingredientStockId: stock.id,
+          quantityUsed: quantityToUse,
+          date: today,
+          reason: `Recipe: ${recipe.name}`,
+          notes: `Production completion for recipe: ${recipe.name}`,
+        });
+
+        remainingQuantity -= quantityToUse;
+      }
+
+      // Check if we couldn't fulfill the full quantity
+      if (remainingQuantity > 0) {
+        shortages.push({
+          ingredientId,
+          ingredientName: ingredientInfo.name,
+          requiredQuantity,
+          availableQuantity: totalAvailable,
+          shortageQuantity: remainingQuantity,
+          unit: ingredientInfo.unit,
+        });
+      }
+    }
+
+    // If there are shortages and partial stock is not allowed, return error
+    if (shortages.length > 0 && !options?.allowPartialStock) {
+      return {
+        success: false,
+        shortages,
+      };
+    }
+
+    // Record all usage in one batch transaction
+    if (usageOperations.length > 0) {
+      await InventoryService.batchRecordUsage(usageOperations, userId);
+    }
+
+    return {
+      success: true,
+      shortages: shortages.length > 0 ? shortages : undefined,
     };
   }
 }

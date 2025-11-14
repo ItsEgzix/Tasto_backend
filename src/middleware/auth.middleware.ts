@@ -3,14 +3,12 @@ import { AuthService } from "../services/auth.service";
 import { AppError } from "./error-handler";
 
 // Extend Express Request to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        userId: string;
-        email: string;
-      };
-    }
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: {
+      userId: string;
+      email: string;
+    };
   }
 }
 

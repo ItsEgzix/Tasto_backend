@@ -16,7 +16,7 @@ export class InventoryAnalyticsService {
    * Calculate overall statistics for today
    * Called when purchase/usage/spoilage happens
    */
-  static async calculateOverallStatistics(): Promise<{
+  static async calculateOverallStatistics(userId: string): Promise<{
     totalValue: number;
     remainingValue: number;
     totalPurchases: number;
@@ -59,7 +59,8 @@ export class InventoryAnalyticsService {
       .from(ingredientStock)
       .innerJoin(ingredients, eq(ingredientStock.ingredientId, ingredients.id))
       .innerJoin(suppliers, eq(ingredientStock.supplierId, suppliers.id))
-      .leftJoin(categories, eq(ingredients.categoryId, categories.id));
+      .leftJoin(categories, eq(ingredients.categoryId, categories.id))
+      .where(eq(ingredientStock.userId, userId));
 
     let totalValue = 0;
     let remainingValue = 0;
@@ -97,6 +98,19 @@ export class InventoryAnalyticsService {
     const lowStockIngredients = new Set<string>();
 
     // OPTIMIZED: Get ALL usage and spoilage in batch queries
+    if (allStock.length === 0) {
+      return {
+        totalValue: 0,
+        remainingValue: 0,
+        totalPurchases: 0,
+        totalIngredients: 0,
+        lowStockCount: 0,
+        ingredientStats: [],
+        supplierStats: [],
+        categoryDistribution: [],
+      };
+    }
+
     const stockIds = allStock.map((s) => s.id);
 
     const allUsage = await db
@@ -205,7 +219,8 @@ export class InventoryAnalyticsService {
     // Get unique ingredients count
     const uniqueIngredients = await db
       .select({ count: sql<number>`COUNT(DISTINCT ${ingredients.id})` })
-      .from(ingredients);
+      .from(ingredients)
+      .where(eq(ingredients.userId, userId));
 
     // Format supplier stats with average price
     const supplierStats = Array.from(supplierMap.values()).map((s) => ({
@@ -241,7 +256,10 @@ export class InventoryAnalyticsService {
   /**
    * Calculate ingredient-specific analytics - OPTIMIZED VERSION
    */
-  static async calculateIngredientAnalytics(ingredientId: string): Promise<{
+  static async calculateIngredientAnalytics(
+    ingredientId: string,
+    userId: string
+  ): Promise<{
     totalValue: number;
     remainingValue: number;
     averagePricePerUnit: number;
@@ -253,6 +271,18 @@ export class InventoryAnalyticsService {
       remainingValue: number;
     }>;
   }> {
+    const [ingredient] = await db
+      .select({ id: ingredients.id })
+      .from(ingredients)
+      .where(
+        and(eq(ingredients.id, ingredientId), eq(ingredients.userId, userId))
+      )
+      .limit(1);
+
+    if (!ingredient) {
+      throw new Error("Ingredient not found");
+    }
+
     // OPTIMIZED: Get stock entries, ordered by date (most recent first)
     const stockEntries = await db
       .select({
@@ -262,7 +292,12 @@ export class InventoryAnalyticsService {
         purchaseDate: ingredientStock.purchaseDate,
       })
       .from(ingredientStock)
-      .where(eq(ingredientStock.ingredientId, ingredientId))
+      .where(
+        and(
+          eq(ingredientStock.ingredientId, ingredientId),
+          eq(ingredientStock.userId, userId)
+        )
+      )
       .orderBy(desc(ingredientStock.purchaseDate));
 
     if (stockEntries.length === 0) {
@@ -469,6 +504,7 @@ export class InventoryAnalyticsService {
    * Shows daily purchases and daily consumption
    */
   static async calculateValueTrend(
+    userId: string,
     startDate: Date,
     endDate: Date
   ): Promise<Array<{ date: string; purchased: string; consumed: string }>> {
@@ -483,6 +519,7 @@ export class InventoryAnalyticsService {
       .from(ingredientStock)
       .where(
         and(
+          eq(ingredientStock.userId, userId),
           gte(
             ingredientStock.purchaseDate,
             startDate.toISOString().split("T")[0]
@@ -508,6 +545,7 @@ export class InventoryAnalyticsService {
       )
       .where(
         and(
+          eq(ingredientStock.userId, userId),
           gte(usageHistory.date, startDate.toISOString().split("T")[0]),
           lte(usageHistory.date, endDate.toISOString().split("T")[0])
         )
@@ -529,6 +567,7 @@ export class InventoryAnalyticsService {
       )
       .where(
         and(
+          eq(ingredientStock.userId, userId),
           gte(spoilageRecords.date, startDate.toISOString().split("T")[0]),
           lte(spoilageRecords.date, endDate.toISOString().split("T")[0])
         )
@@ -610,6 +649,7 @@ export class InventoryAnalyticsService {
    * Calculate purchase value trend over time (daily purchase amounts)
    */
   static async calculatePurchaseValueTrend(
+    userId: string,
     startDate: Date,
     endDate: Date
   ): Promise<Array<{ date: string; purchases: string }>> {
@@ -623,6 +663,7 @@ export class InventoryAnalyticsService {
       .from(ingredientStock)
       .where(
         and(
+          eq(ingredientStock.userId, userId),
           gte(
             ingredientStock.purchaseDate,
             startDate.toISOString().split("T")[0]
@@ -664,13 +705,14 @@ export class InventoryAnalyticsService {
   /**
    * Save today's snapshot
    */
-  static async saveDailySnapshot() {
+  static async saveDailySnapshot(userId: string) {
     const today = new Date().toISOString().split("T")[0];
-    const stats = await this.calculateOverallStatistics();
+    const stats = await this.calculateOverallStatistics(userId);
 
     await db
       .insert(dailyInventorySnapshots)
       .values({
+        userId,
         snapshotDate: today,
         totalValue: stats.totalValue.toString(),
         remainingValue: stats.remainingValue.toString(),
@@ -683,7 +725,10 @@ export class InventoryAnalyticsService {
         updatedAt: sql`now()`,
       })
       .onConflictDoUpdate({
-        target: dailyInventorySnapshots.snapshotDate,
+        target: [
+          dailyInventorySnapshots.userId,
+          dailyInventorySnapshots.snapshotDate,
+        ],
         set: {
           totalValue: stats.totalValue.toString(),
           remainingValue: stats.remainingValue.toString(),
@@ -701,12 +746,16 @@ export class InventoryAnalyticsService {
   /**
    * Update ingredient analytics
    */
-  static async updateIngredientAnalytics(ingredientId: string) {
-    const analytics = await this.calculateIngredientAnalytics(ingredientId);
+  static async updateIngredientAnalytics(ingredientId: string, userId: string) {
+    const analytics = await this.calculateIngredientAnalytics(
+      ingredientId,
+      userId
+    );
 
     await db
       .insert(ingredientAnalytics)
       .values({
+        userId,
         ingredientId,
         totalValue: analytics.totalValue.toString(),
         remainingValue: analytics.remainingValue.toString(),
@@ -717,7 +766,7 @@ export class InventoryAnalyticsService {
         updatedAt: sql`now()`,
       })
       .onConflictDoUpdate({
-        target: ingredientAnalytics.ingredientId,
+        target: [ingredientAnalytics.userId, ingredientAnalytics.ingredientId],
         set: {
           totalValue: analytics.totalValue.toString(),
           remainingValue: analytics.remainingValue.toString(),
